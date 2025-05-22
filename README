@@ -1,0 +1,15 @@
+Goal 
+
+To stream/watch youtube video without ads locally at home, plan is to create a web app that has a web UI which allows user to submit the youtube video url and then backend can download and stream video.
+
+Experience 
+
+1. User finds youtube video of interest e.g. https://www.youtube.com/watch?v=SguCVRVWzTc 
+2. User prefix the url with local server behind a fake domain name since we run the DNS service locally as well e.g. mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc 
+3. Video will start to be streamed on the page mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc. Depending the approach to load the video e.g. download the file then play or stream the video as it gets downloaded, the page should provides debug/metric information about the download or streaming.
+
+Implementation
+1. Use react to build the frontend experience 
+2. Use python e.g. FastAPI to build the backend maybe use huey as the job system if needed 
+3. For data persistence consider options like Postgresql (Available in the local network)
+4. For cache consider redis
