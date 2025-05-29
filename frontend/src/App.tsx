@@ -231,12 +231,32 @@ function App() {
                                 videoElement.controls = true;
                                 videoElement.className = 'w-full h-full object-contain';
                                 
-                                const button = document.querySelector(`[data-video-id="${video.id}"]`);
+                                const button = document.querySelector(`[data-video-id="${video.id}"]`) as HTMLButtonElement;
                                 if (button) {
                                   const container = button.parentElement;
                                   if (container) {
+                                    // Store original content
+                                    const originalContent = container.innerHTML;
+                                    
                                     container.innerHTML = '';
-                                    container.appendChild(videoElement);
+                                    
+                                    // Create wrapper div for video and close button
+                                    const wrapper = document.createElement('div');
+                                    wrapper.className = 'relative w-full h-full';
+                                    
+                                    // Add close button
+                                    const closeButton = document.createElement('button');
+                                    closeButton.className = 'absolute top-1 right-1 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-1';
+                                    closeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+                                    closeButton.onclick = (e) => {
+                                      e.stopPropagation();
+                                      // Restore original content
+                                      container.innerHTML = originalContent;
+                                    };
+                                    
+                                    wrapper.appendChild(videoElement);
+                                    wrapper.appendChild(closeButton);
+                                    container.appendChild(wrapper);
                                     videoElement.play();
                                   }
                                 }
@@ -323,12 +343,32 @@ function App() {
                                         videoElement.controls = true;
                                         videoElement.className = 'w-full h-full object-contain';
                                         
-                                        const button = document.querySelector(`[data-video-id="${video.id}"]`);
+                                        const button = document.querySelector(`[data-video-id="${video.id}"]`) as HTMLButtonElement;
                                         if (button) {
                                           const container = button.parentElement;
                                           if (container) {
+                                            // Store original content
+                                            const originalContent = container.innerHTML;
+                                            
                                             container.innerHTML = '';
-                                            container.appendChild(videoElement);
+                                            
+                                            // Create wrapper div for video and close button
+                                            const wrapper = document.createElement('div');
+                                            wrapper.className = 'relative w-full h-full';
+                                            
+                                            // Add close button
+                                            const closeButton = document.createElement('button');
+                                            closeButton.className = 'absolute top-1 right-1 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-1';
+                                            closeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+                                            closeButton.onclick = (e) => {
+                                              e.stopPropagation();
+                                              // Restore original content
+                                              container.innerHTML = originalContent;
+                                            };
+                                            
+                                            wrapper.appendChild(videoElement);
+                                            wrapper.appendChild(closeButton);
+                                            container.appendChild(wrapper);
                                             videoElement.play();
                                           }
                                         }
