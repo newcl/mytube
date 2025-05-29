@@ -1,15 +1,34 @@
 Goal 
 
-To stream/watch youtube video without ads locally at home, plan is to create a web app that has a web UI which allows user to submit the youtube video url and then backend can download and stream video.
+Lets build a webapp to use at home, so everyone can watch youtube video without ads, we want to download the video first to avoid streaming challenges.
 
 Experience 
 
-1. User finds youtube video of interest e.g. https://www.youtube.com/watch?v=SguCVRVWzTc 
-2. User prefix the url with local server behind a fake domain name since we run the DNS service locally as well e.g. mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc 
-3. Video will start to be streamed on the page mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc. Depending the approach to load the video e.g. download the file then play or stream the video as it gets downloaded, the page should provides debug/metric information about the download or streaming.
+To submit a video 
+1. On home page there is a text box to submit youtube video url
+2. Or prefix the youtube video url, e.g. mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc so user only needs to prefix the domain name for easy access
+
+To see all past videos 
+1. Show a table to list all videos in the past or being downloaded 
+2. Table includes details e.g. url, thumbnail if available, date and time video submitted, video file size, status (downloading/downloaded/pending/fail/.etc to include all possible conditions)
+3. Table allow bulk operations 1. delete 2. retry if failed to download before 
+
+Query videos 
+1. Search bar to allow fuzzy query by any text related to the video
+2. Search bar to allow search by date of submission (add short cuts in UI with e.g. 1 day ago, 3 days, 1 week ago, 1 month ago)
+
+Actual download process
+1. Use background job queue to actual download videos 
+2. Update download status and progrss when progress is made which is shown on frontend 
+
+Video playback
+1. When clicking on table row e.g. title, url, thumbnail go to a play page e.g. mytube.com/play?url=https://www.youtube.com/watch?v=SguCVRVWzTc using video.js to play the video 
 
 Implementation
-1. Use react to build the frontend experience 
-2. Use python e.g. FastAPI to build the backend maybe use huey as the job system if needed 
-3. For data persistence consider options like Postgresql (Available in the local network)
-4. For cache consider redis
+1. Use React to build the frontend experience with proper UI library shadcn, use Vite as the toolchain
+2. Use python FastAPI to build the backend and use Huey as the background queue 
+3. Use Postgresql to store any state so come up with table schemma and migrations, huey also use postgresql as storage for jobs
+
+Folder structure 
+1. create frontend folder for everything frontend
+2. create backend folder for everything backend 
