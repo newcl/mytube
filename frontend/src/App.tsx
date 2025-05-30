@@ -1,439 +1,285 @@
-import { useState, useEffect } from 'react'
-import { Button } from './components/ui/button'
-import { Input } from './components/ui/input'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card'
-import { Badge } from './components/ui/badge'
-import { Progress } from './components/ui/progress'
-import { Alert, AlertDescription } from './components/ui/alert'
-import { AlertCircle, Download, ExternalLink, Play, X } from 'lucide-react'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./components/ui/table"
+import { useState, useEffect, useRef } from 'react';
+import { Table, Button, Input, Modal, message, Space, Typography, Image, Badge, Tooltip } from 'antd';
+import { DownloadOutlined, PlayCircleOutlined, DeleteOutlined, SearchOutlined, ClockCircleOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+
+const { Title } = Typography;
 
 interface Video {
-  id: number
-  url: string
-  title?: string
-  status: string
-  error_message?: string
-  thumbnail_url?: string
-  file_path?: string
-  file_size?: number
-  created_at: string
+  id: number;
+  title: string;
+  thumbnail_url: string;
+  status: string;
+  created_at: string;
+  file_path?: string;
 }
 
 function App() {
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [videos, setVideos] = useState<Video[]>([])
-  const [selectedVideo, setSelectedVideo] = useState<Video | null>(null)
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [url, setUrl] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [searchText, setSearchText] = useState('');
+
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const fetchVideos = async () => {
     try {
-      const res = await fetch('/api/videos/')
-      if (!res.ok) throw new Error('Failed to fetch videos')
-      const data = await res.json()
-      console.log('Fetched videos:', data)
-      setVideos(data)
-    } catch (err) {
-      setError('Failed to fetch videos')
+      const response = await fetch('http://localhost:8000/api/videos/');
+      const data = await response.json();
+      setVideos(data);
+    } catch (error) {
+      console.error('Error fetching videos:', error);
+      message.error('Failed to fetch videos');
     }
-  }
+  };
 
   useEffect(() => {
-    fetchVideos()
-    const interval = setInterval(fetchVideos, 5000)
-    return () => clearInterval(interval)
-  }, [])
+    fetchVideos();
+    const interval = setInterval(fetchVideos, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+  const handleDownload = async () => {
+    if (!url) {
+      message.warning('Please enter a YouTube URL');
+      return;
+    }
 
+    setLoading(true);
     try {
-      const response = await fetch('/api/videos/', {
+      const response = await fetch('http://localhost:8000/api/download/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ url }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error('Failed to start download')
+        throw new Error('Download failed');
       }
 
-      const data = await response.json()
-      console.log('Download started:', data)
-      setUrl('')
-      fetchVideos()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      const data = await response.json();
+      message.success('Download started successfully');
+      setUrl('');
+      fetchVideos();
+    } catch (error) {
+      console.error('Error downloading video:', error);
+      message.error('Failed to download video');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/videos/${id}/`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Delete failed');
+      }
+
+      message.success('Video deleted successfully');
+      fetchVideos();
+    } catch (error) {
+      console.error('Error deleting video:', error);
+      message.error('Failed to delete video');
+    }
+  };
+
+  const handlePlay = (video: Video) => {
+    setSelectedVideo(video);
+    setIsModalVisible(true);
+  };
+
+  useEffect(() => {
+    if (isModalVisible && videoRef.current) {
+      videoRef.current.play().catch(error => {
+        console.error('Error attempting to auto-play:', error);
+        // Handle potential Autoplay Policy restrictions
+      });
+    } else if (!isModalVisible && videoRef.current) {
+        // Pause and reset video and remove source when modal is closed
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        videoRef.current.src = ''; // Explicitly remove source
+    }
+  }, [isModalVisible]); // Rerun effect when modal visibility changes
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'DOWNLOADED':
-        return 'bg-green-500'
+        return 'success';
       case 'FAILED':
-        return 'bg-red-500'
+        return 'error';
       case 'DOWNLOADING':
-        return 'bg-blue-500'
+        return 'processing';
+      case 'PENDING':
+          return 'default'; // Or 'warning' or 'processing'
       default:
-        return 'bg-gray-500'
+        return 'default';
     }
-  }
+  };
+
+  const getStatusIcon = (status: string) => {
+      switch (status) {
+          case 'PENDING':
+              return <ClockCircleOutlined style={{ color: getStatusColor(status) }} />;
+          case 'DOWNLOADING':
+              return <LoadingOutlined style={{ color: getStatusColor(status) }} />;
+          case 'DOWNLOADED':
+              return <CheckCircleOutlined style={{ color: getStatusColor(status) }} />;
+          case 'FAILED':
+              return <CloseCircleOutlined style={{ color: getStatusColor(status) }} />;
+          default:
+              return null;
+      }
+  };
+
+  const columns: ColumnsType<Video> = [
+    {
+      title: 'Thumbnail',
+      dataIndex: 'thumbnail_url',
+      key: 'thumbnail_url',
+      minWidth: 180,
+      render: (url: string) => (
+        <Image
+          src={url}
+          alt="thumbnail"
+          width={160}
+          height={90}
+          style={{ objectFit: 'cover' }}
+          preview={false}
+        />
+      ),
+    },
+    {
+      title: 'Title',
+      dataIndex: 'title',
+      key: 'title',
+      minWidth: 300,
+      ellipsis: true,
+      render: (text: string) => (
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <Typography.Text ellipsis={true}>
+            {text}
+          </Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 80,
+      render: (status: string) => (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <Tooltip title={status}>
+              {getStatusIcon(status)}
+            </Tooltip>
+        </div>
+      ),
+    },
+    {
+      title: 'Created At',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+      render: (date: string) => new Date(date).toLocaleString(),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      render: (_, record) => (
+        <Space>
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={() => handlePlay(record)}
+            disabled={record.status !== 'DOWNLOADED'}
+          />
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record.id)}
+          />
+        </Space>
+      ),
+    },
+  ];
+
+  const filteredVideos = videos.filter(video =>
+    video.title.toLowerCase().includes(searchText.toLowerCase())
+  );
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-12 px-4">
-        <div className="max-w-5xl mx-auto space-y-12">
-          {/* Header Section */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">YouTube Video Downloader</h1>
-              <p className="mt-2 text-muted-foreground">Download and manage your YouTube videos</p>
-            </div>
-            <Button variant="outline" onClick={() => window.open('https://github.com/yourusername/mytube', '_blank')}>
-              <ExternalLink className="w-4 h-4 mr-2" />
-              GitHub
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-7xl mx-auto">
+        <Title level={2} className="mb-8">YouTube Video Downloader</Title>
+        
+        <div className="bg-white p-6 rounded-lg shadow-sm mb-8">
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              placeholder="Enter YouTube URL"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onPressEnter={handleDownload}
+              style={{ flex: 1 }}
+            />
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleDownload}
+              loading={loading}
+            >
+              Download
             </Button>
-          </div>
-
-          {/* Download Form Section */}
-          <Card>
-            <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl">Download New Video</CardTitle>
-              <CardDescription>Enter a YouTube URL to start downloading</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Input
-                    type="url"
-                    placeholder="Enter YouTube URL"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    required
-                    className="w-full h-12 text-lg"
-                  />
-                  {error && (
-                    <Alert variant="destructive" className="mt-4">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                  )}
-                </div>
-                
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full h-12 text-lg"
-                >
-                  {loading ? (
-                    <>
-                      <Download className="w-5 h-5 mr-2 animate-spin" />
-                      Starting Download...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-5 h-5 mr-2" />
-                      Download Video
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Videos Section */}
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-semibold tracking-tight">Your Videos</h2>
-              <div className="flex items-center gap-4">
-                <p className="text-sm text-muted-foreground">
-                  {videos.length} {videos.length === 1 ? 'video' : 'videos'} in your library
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={viewMode === 'cards' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setViewMode('cards')}
-                  >
-                    Cards
-                  </Button>
-                  <Button
-                    variant={viewMode === 'table' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setViewMode('table')}
-                  >
-                    Table
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {videos.length === 0 ? (
-              <Card>
-                <CardContent className="flex items-center justify-center h-48">
-                  <div className="text-center space-y-2">
-                    <p className="text-muted-foreground text-lg">No videos yet</p>
-                    <p className="text-sm text-muted-foreground">Start by downloading your first video!</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : viewMode === 'cards' ? (
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {videos.map(video => (
-                  <Card key={video.id} className="flex flex-col">
-                    <div className="relative bg-black/5 flex items-center justify-center p-2">
-                      <div style={{ width: '200px', height: '112px' }} className="relative">
-                        {video.thumbnail_url ? (
-                          <div className="absolute inset-0 overflow-hidden">
-                            <img 
-                              src={video.thumbnail_url} 
-                              alt={video.title || 'Video thumbnail'} 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-muted-foreground text-xs">No thumbnail</span>
-                          </div>
-                        )}
-                        <Badge 
-                          className={`absolute top-1 right-1 ${getStatusColor(video.status)} text-[10px] px-1 py-0`}
-                        >
-                          {video.status}
-                        </Badge>
-                        {video.status === 'DOWNLOADED' && video.file_path && (
-                          <Button 
-                            variant="secondary"
-                            size="icon"
-                            className="absolute inset-0 m-auto w-8 h-8 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
-                            onClick={() => {
-                              if (!video.file_path) return;
-                              try {
-                                const videoUrl = `http://localhost:8000/downloads/${video.file_path.replace('downloads/', '')}`;
-                                const videoElement = document.createElement('video');
-                                videoElement.src = videoUrl;
-                                videoElement.controls = true;
-                                videoElement.className = 'w-full h-full object-contain';
-                                
-                                const button = document.querySelector(`[data-video-id="${video.id}"]`) as HTMLButtonElement;
-                                if (button) {
-                                  const container = button.parentElement;
-                                  if (container) {
-                                    // Store original content
-                                    const originalContent = container.innerHTML;
-                                    
-                                    container.innerHTML = '';
-                                    
-                                    // Create wrapper div for video and close button
-                                    const wrapper = document.createElement('div');
-                                    wrapper.className = 'relative w-full h-full';
-                                    
-                                    // Add close button
-                                    const closeButton = document.createElement('button');
-                                    closeButton.className = 'absolute top-1 right-1 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-1';
-                                    closeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-                                    closeButton.onclick = (e) => {
-                                      e.stopPropagation();
-                                      // Restore original content
-                                      container.innerHTML = originalContent;
-                                    };
-                                    
-                                    wrapper.appendChild(videoElement);
-                                    wrapper.appendChild(closeButton);
-                                    container.appendChild(wrapper);
-                                    videoElement.play();
-                                  }
-                                }
-                              } catch (error) {
-                                console.error('Error opening video:', error);
-                              }
-                            }}
-                            data-video-id={video.id}
-                          >
-                            <Play className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-2 flex flex-col gap-2">
-                      <h3 className="text-sm font-medium truncate">
-                        {video.title || video.url}
-                      </h3>
-                      {video.status === 'DOWNLOADING' && (
-                        <div>
-                          <Progress value={33} className="w-full h-1" />
-                          <p className="text-xs text-muted-foreground">Downloading...</p>
-                        </div>
-                      )}
-                      {video.status === 'FAILED' && video.error_message && (
-                        <p className="text-xs text-destructive truncate">{video.error_message}</p>
-                      )}
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => window.open(video.url, '_blank')}
-                        className="w-full hover:bg-gray-100 h-7 text-xs"
-                      >
-                        <ExternalLink className="w-3 h-3 mr-1" />
-                        View on YouTube
-                      </Button>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="w-[50%] py-2">Title</TableHead>
-                        <TableHead className="w-[10%] py-2">Status</TableHead>
-                        <TableHead className="w-[10%] py-2">Size</TableHead>
-                        <TableHead className="w-[15%] py-2">Created</TableHead>
-                        <TableHead className="w-[15%] py-2 text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {videos.map(video => (
-                        <TableRow key={video.id} className="group hover:bg-gray-50">
-                          <TableCell className="py-2">
-                            <div className="flex items-center gap-2">
-                              <div style={{ width: '160px', height: '90px' }} className="relative bg-black/5 flex-shrink-0">
-                                {video.thumbnail_url ? (
-                                  <div className="absolute inset-0 overflow-hidden">
-                                    <img 
-                                      src={video.thumbnail_url} 
-                                      alt={video.title || 'Video thumbnail'} 
-                                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-muted-foreground text-xs">No thumbnail</span>
-                                  </div>
-                                )}
-                                {video.status === 'DOWNLOADED' && video.file_path && (
-                                  <Button 
-                                    variant="secondary"
-                                    size="icon"
-                                    className="absolute inset-0 m-auto w-6 h-6 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
-                                    onClick={() => {
-                                      if (!video.file_path) return;
-                                      try {
-                                        const videoUrl = `http://localhost:8000/downloads/${video.file_path.replace('downloads/', '')}`;
-                                        const videoElement = document.createElement('video');
-                                        videoElement.src = videoUrl;
-                                        videoElement.controls = true;
-                                        videoElement.className = 'w-full h-full object-contain';
-                                        
-                                        const button = document.querySelector(`[data-video-id="${video.id}"]`) as HTMLButtonElement;
-                                        if (button) {
-                                          const container = button.parentElement;
-                                          if (container) {
-                                            // Store original content
-                                            const originalContent = container.innerHTML;
-                                            
-                                            container.innerHTML = '';
-                                            
-                                            // Create wrapper div for video and close button
-                                            const wrapper = document.createElement('div');
-                                            wrapper.className = 'relative w-full h-full';
-                                            
-                                            // Add close button
-                                            const closeButton = document.createElement('button');
-                                            closeButton.className = 'absolute top-1 right-1 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-1';
-                                            closeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-                                            closeButton.onclick = (e) => {
-                                              e.stopPropagation();
-                                              // Restore original content
-                                              container.innerHTML = originalContent;
-                                            };
-                                            
-                                            wrapper.appendChild(videoElement);
-                                            wrapper.appendChild(closeButton);
-                                            container.appendChild(wrapper);
-                                            videoElement.play();
-                                          }
-                                        }
-                                      } catch (error) {
-                                        console.error('Error opening video:', error);
-                                      }
-                                    }}
-                                    data-video-id={video.id}
-                                  >
-                                    <Play className="w-3 h-3" />
-                                  </Button>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-medium truncate">
-                                  {video.title || video.url}
-                                </h3>
-                                {video.status === 'DOWNLOADING' && (
-                                  <div>
-                                    <Progress value={33} className="w-full h-1" />
-                                    <p className="text-xs text-muted-foreground">Downloading...</p>
-                                  </div>
-                                )}
-                                {video.status === 'FAILED' && video.error_message && (
-                                  <p className="text-xs text-destructive truncate">{video.error_message}</p>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <Badge className={`${getStatusColor(video.status)} text-[10px] px-1 py-0`}>
-                              {video.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="py-2 text-xs">
-                            {video.file_size ? `${(video.file_size / (1024 * 1024)).toFixed(1)} MB` : '-'}
-                          </TableCell>
-                          <TableCell className="py-2 text-xs">
-                            {new Date(video.created_at).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell className="py-2 text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => window.open(video.url, '_blank')}
-                                className="hover:bg-gray-100 h-7 text-xs"
-                              >
-                                <ExternalLink className="w-3 h-3 mr-1" />
-                                View
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          </Space.Compact>
         </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="mb-4">
+            <Input
+              placeholder="Search videos..."
+              prefix={<SearchOutlined />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ width: 300 }}
+            />
+          </div>
+          
+          <Table
+            columns={columns}
+            dataSource={filteredVideos}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+          />
+        </div>
+
+        <Modal
+          title={selectedVideo?.title}
+          open={isModalVisible}
+          onCancel={() => setIsModalVisible(false)}
+          footer={null}
+          width={800}
+        >
+          {selectedVideo && (
+            <video
+              ref={videoRef}
+              controls
+              style={{ width: '100%' }}
+              src={`http://localhost:8000/api/videos/${selectedVideo.id}/stream/`}
+            />
+          )}
+        </Modal>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App; 
