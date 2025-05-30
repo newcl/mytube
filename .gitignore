@@ -29,6 +29,7 @@ env.bak/
 venv.bak/
 .python-version
 *.log
+huey.pid
 
 # Node
 node_modules/

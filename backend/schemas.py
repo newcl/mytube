@@ -20,8 +20,8 @@ class VideoOut(VideoBase):
     file_path: Optional[str] = None
     file_size: Optional[int] = None
     status: VideoStatus
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
     class Config:

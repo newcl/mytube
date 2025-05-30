@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Table, Button, Input, Modal, message, Space, Typography, Image, Badge, Tooltip } from 'antd';
+import { Table, Button, Input, Modal, message, Space, Typography, Image, Badge, Tooltip, Progress } from 'antd';
 import { DownloadOutlined, PlayCircleOutlined, DeleteOutlined, SearchOutlined, ClockCircleOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -12,6 +12,7 @@ interface Video {
   status: string;
   created_at: string;
   file_path?: string;
+  download_progress?: number | null;
 }
 
 function App() {
@@ -175,14 +176,28 @@ function App() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
-      render: (status: string) => (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-            <Tooltip title={status}>
-              {getStatusIcon(status)}
-            </Tooltip>
-        </div>
-      ),
+      width: 120,
+      render: (status: string, record: Video) => {
+        if (status === 'DOWNLOADING' && record.download_progress != null) {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
+              <Progress
+                percent={record.download_progress}
+                size="small"
+                status={record.download_progress === 100 ? 'success' : 'active'}
+              />
+            </div>
+          );
+        } else {
+          return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                <Tooltip title={status}>
+                  {getStatusIcon(status)}
+                </Tooltip>
+            </div>
+          );
+        }
+      },
     },
     {
       title: 'Created At',

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Float
 from sqlalchemy.sql import func
 from database import Base
 import enum
@@ -22,4 +22,8 @@ class Video(Base):
     status = Column(Enum(VideoStatus), default=VideoStatus.PENDING)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    error_message = Column(String, nullable=True) 
+    error_message = Column(String, nullable=True)
+    download_progress = Column(Float, nullable=True, default=0.0)
+
+    def __repr__(self):
+        return f"<Video(id={self.id}, title={self.title})>" 
