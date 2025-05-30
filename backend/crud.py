@@ -4,6 +4,10 @@ from schemas import VideoCreate, VideoQuery
 from typing import List, Optional
 from sqlalchemy import or_, and_
 from datetime import datetime
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_video(db: Session, video_id: int) -> Optional[Video]:
     return db.query(Video).filter(Video.id == video_id).first()
@@ -30,9 +34,18 @@ def get_videos(db: Session, query: Optional[VideoQuery] = None) -> List[Video]:
 def delete_video(db: Session, video_id: int) -> bool:
     video = get_video(db, video_id)
     if video:
+        if video.file_path and os.path.exists(video.file_path):
+            try:
+                os.remove(video.file_path)
+                logger.info(f"Deleted video file: {video.file_path}")
+            except OSError as e:
+                logger.error(f"Error deleting video file {video.file_path}: {e}")
+                
         db.delete(video)
         db.commit()
+        logger.info(f"Deleted video record for ID: {video_id}")
         return True
+    logger.warning(f"Video record not found for ID: {video_id}")
     return False
 
 def update_video_status(db: Session, video_id: int, status: str, error_message: Optional[str] = None):
