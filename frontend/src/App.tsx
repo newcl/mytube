@@ -7,7 +7,7 @@ const { Title } = Typography;
 
 interface Video {
   id: number;
-  title: string;
+  title?: string | null;
   thumbnail_url: string;
   status: string;
   created_at: string;
@@ -49,7 +49,7 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/download/', {
+      const response = await fetch('http://localhost:8000/api/videos/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -214,7 +214,7 @@ function App() {
   ];
 
   const filteredVideos = videos.filter(video =>
-    video.title.toLowerCase().includes(searchText.toLowerCase())
+    (video.title?.toLowerCase() || '').includes(searchText.toLowerCase())
   );
 
   return (
