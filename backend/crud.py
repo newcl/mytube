@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import Video
+from models import Video, VideoStatus
 from schemas import VideoCreate, VideoQuery
 from typing import List, Optional
 from sqlalchemy import or_, and_
@@ -15,8 +15,19 @@ def get_video(db: Session, video_id: int) -> Optional[Video]:
 def get_video_by_url(db: Session, url: str) -> Optional[Video]:
     return db.query(Video).filter(Video.url == url).first()
 
-def create_video(db: Session, video: VideoCreate) -> Video:
-    db_video = Video(url=video.url, status="pending")
+def create_video(db: Session, url: str) -> Video:
+    db_video = Video(
+        url=url,
+        status=VideoStatus.PENDING,
+        download_info={
+            'progress': 0.0,
+            'speed': 'N/A',
+            'eta': 'N/A',
+            'total_bytes': 0,
+            'downloaded_bytes': 0,
+            'elapsed': 0
+        }
+    )
     db.add(db_video)
     db.commit()
     db.refresh(db_video)
@@ -48,7 +59,7 @@ def delete_video(db: Session, video_id: int) -> bool:
     logger.warning(f"Video record not found for ID: {video_id}")
     return False
 
-def update_video_status(db: Session, video_id: int, status: str, error_message: Optional[str] = None):
+def update_video_status(db: Session, video_id: int, status: VideoStatus, error_message: Optional[str] = None):
     video = get_video(db, video_id)
     if video:
         video.status = status
@@ -58,5 +69,8 @@ def update_video_status(db: Session, video_id: int, status: str, error_message: 
     return video
 
 def bulk_retry(db: Session, ids: List[int]):
-    db.query(Video).filter(Video.id.in_(ids), Video.status == "failed").update({Video.status: "pending", Video.error_message: None}, synchronize_session=False)
+    db.query(Video).filter(Video.id.in_(ids), Video.status == VideoStatus.FAILED).update(
+        {Video.status: VideoStatus.PENDING, Video.error_message: None},
+        synchronize_session=False
+    )
     db.commit() 

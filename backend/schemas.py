@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 from models import VideoStatus
 
@@ -20,9 +20,10 @@ class VideoOut(VideoBase):
     file_path: Optional[str] = None
     file_size: Optional[int] = None
     status: VideoStatus
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
     error_message: Optional[str] = None
+    download_info: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

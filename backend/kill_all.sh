@@ -1,29 +1,36 @@
 #!/bin/bash
 
-echo "Attempting to kill FastAPI (uvicorn) and Huey processes..."
+# Function to kill processes by pattern
+kill_processes() {
+    local pattern=$1
+    local name=$2
+    local pids=$(pgrep -f "$pattern")
+    
+    if [ -n "$pids" ]; then
+        echo "Found $name processes (PIDs: $pids)"
+        for pid in $pids; do
+            if kill -9 "$pid" 2>/dev/null; then
+                echo "✓ Killed $name process $pid"
+            else
+                echo "✗ Failed to kill $name process $pid"
+            fi
+        done
+    else
+        echo "No $name processes found"
+    fi
+}
 
-# Find PIDs for uvicorn main:app and kill them
-UVICORN_PIDS=$(pgrep -f "uvicorn main:app")
+echo "🔍 Searching for processes to kill..."
 
-if [ -z "$UVICORN_PIDS" ]; then
-  echo "No FastAPI (uvicorn main:app) processes found."
+# Kill FastAPI/uvicorn processes
+kill_processes "uvicorn main:app" "FastAPI"
+
+# Kill Huey processes
+kill_processes "python3 run_huey.py" "Huey"
+
+# Verify no processes are still running
+if pgrep -f "uvicorn main:app" >/dev/null || pgrep -f "python3 run_huey.py" >/dev/null; then
+    echo "⚠️  Warning: Some processes may still be running"
 else
-  echo "Found FastAPI (uvicorn) processes with PIDs: $UVICORN_PIDS"
-  # Use kill -9 for forceful termination
-  echo $UVICORN_PIDS | xargs kill -9
-  echo "FastAPI (uvicorn) processes killed."
-fi
-
-# Find PIDs for python3 run_huey.py and kill them
-HUEY_PIDS=$(pgrep -f "python3 run_huey.py")
-
-if [ -z "$HUEY_PIDS" ]; then
-  echo "No Huey (python3 run_huey.py) processes found."
-else
-  echo "Found Huey processes with PIDs: $HUEY_PIDS"
-  # Use kill -9 for forceful termination
-  echo $HUEY_PIDS | xargs kill -9
-  echo "Huey processes killed."
-fi
-
-echo "Process killing script finished." 
+    echo "✅ All processes successfully terminated"
+fi 

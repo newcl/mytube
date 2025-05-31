@@ -32,3 +32,14 @@ Implementation
 Folder structure 
 1. create frontend folder for everything frontend
 2. create backend folder for everything backend 
+
+
+To restart backend servers 
+
+Use backend/venv virtual environment
+
+`sh backend/restart_servers.sh`
+
+To start frontend server 
+`cd frontend`
+`npm run dev`

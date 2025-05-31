@@ -27,10 +27,7 @@ def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     
     # Create new video
     logger.info("Creating new video record")
-    db_video = Video(url=video.url, status=VideoStatus.PENDING)
-    db.add(db_video)
-    db.commit()
-    db.refresh(db_video)
+    db_video = crud.create_video(db, video.url)
     
     # Start download task
     logger.info(f"Queueing download task for video_id: {db_video.id}")
@@ -41,7 +38,16 @@ def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
 
 @router.get("/videos/", response_model=List[VideoOut])
 def list_videos(query: VideoQuery = None, db: Session = Depends(get_db)):
-    return crud.get_videos(db, query)
+    logger.info("Received request to list videos")
+    try:
+        videos = crud.get_videos(db, query)
+        logger.info(f"Found {len(videos)} videos")
+        for video in videos:
+            logger.debug(f"Video {video.id}: {video.title} ({video.status})")
+        return videos
+    except Exception as e:
+        logger.error(f"Error listing videos: {str(e)}")
+        raise
 
 @router.delete("/videos/{video_id}")
 def delete_video(video_id: int, db: Session = Depends(get_db)):
