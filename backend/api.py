@@ -77,4 +77,11 @@ def stream_video(video_id: int, db: Session = Depends(get_db)):
     if not mime_type:
         mime_type = "application/octet-stream" # Default to generic binary if type cannot be guessed
 
-    return FileResponse(video.file_path, media_type=mime_type) 
+    return FileResponse(video.file_path, media_type=mime_type)
+
+@router.get("/videos/{video_id}", response_model=VideoOut)
+def get_video(video_id: int, db: Session = Depends(get_db)):
+    video = crud.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video 
