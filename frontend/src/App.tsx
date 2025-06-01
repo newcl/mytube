@@ -33,6 +33,7 @@ function App() {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [searchText, setSearchText] = useState('');
   const wsRef = useRef<WebSocket | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -49,6 +50,32 @@ function App() {
       message.error('Failed to fetch videos');
     }
   };
+
+  // Start polling if there are downloading videos
+  useEffect(() => {
+    const hasDownloadingVideos = videos.some(video => video.status === 'DOWNLOADING');
+    
+    if (hasDownloadingVideos) {
+      // Clear any existing interval
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      
+      // Start polling every 500ms
+      pollingIntervalRef.current = setInterval(fetchVideos, 500);
+    } else if (pollingIntervalRef.current) {
+      // Clear interval if no downloading videos
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [videos]);
 
   useEffect(() => {
     fetchVideos();
@@ -235,8 +262,12 @@ function App() {
                 status="active"
               />
               <div style={{ fontSize: '12px', color: '#666', display: 'flex', justifyContent: 'space-between' }}>
-                <span>{record.download_info.speed}</span>
-                <span>{record.download_info.eta}</span>
+                {record.download_info?.speed && record.download_info.speed !== 'N/A' && record.download_info.speed !== 'unknown' && (
+                  <span>{record.download_info.speed}</span>
+                )}
+                {record.download_info?.eta && record.download_info.eta !== 'N/A' && record.download_info.eta !== 'unknown' && (
+                  <span>{record.download_info.eta}</span>
+                )}
               </div>
             </div>
           );

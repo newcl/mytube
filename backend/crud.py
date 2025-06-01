@@ -21,8 +21,8 @@ def create_video(db: Session, url: str) -> Video:
         status=VideoStatus.PENDING,
         download_info={
             'progress': 0.0,
-            'speed': 'N/A',
-            'eta': 'N/A',
+            'speed': '',
+            'eta': '',
             'total_bytes': 0,
             'downloaded_bytes': 0,
             'elapsed': 0
@@ -45,13 +45,57 @@ def get_videos(db: Session, query: Optional[VideoQuery] = None) -> List[Video]:
 def delete_video(db: Session, video_id: int) -> bool:
     video = get_video(db, video_id)
     if video:
-        if video.file_path and os.path.exists(video.file_path):
+        # Clean up all possible file extensions
+        extensions = [
+            # Video files
+            '.mp4', '.webm', '.mkv', '.m4a', '.mp3',
+            # Description files
+            '.description',
+            # Subtitle files
+            '.en.vtt', '.vtt', '.srt',
+            # Thumbnail files
+            '.webp', '.jpg', '.jpeg', '.png',
+            # Other metadata files
+            '.json', '.info.json'
+        ]
+        
+        # First try to delete the file from the database record
+        if video.file_path:
             try:
-                os.remove(video.file_path)
-                logger.info(f"Deleted video file: {video.file_path}")
+                if os.path.exists(video.file_path):
+                    os.remove(video.file_path)
+                    logger.info(f"Deleted file from database path: {video.file_path}")
             except OSError as e:
-                logger.error(f"Error deleting video file {video.file_path}: {e}")
-                
+                logger.error(f"Error deleting file from database path {video.file_path}: {e}")
+        
+        # Then try all possible extensions
+        for ext in extensions:
+            # Try with video_id
+            file_path = os.path.join('downloads', f'{video_id}{ext}')
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Deleted file: {file_path}")
+                except OSError as e:
+                    logger.error(f"Error deleting file {file_path}: {e}")
+            
+            # Try with video_id and additional suffixes
+            for suffix in ['', '.en', '.en-US', '.en-GB']:
+                file_path = os.path.join('downloads', f'{video_id}{suffix}{ext}')
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Deleted file: {file_path}")
+                    except OSError as e:
+                        logger.error(f"Error deleting file {file_path}: {e}")
+        
+        # List remaining files for debugging
+        if os.path.exists('downloads'):
+            logger.info("Remaining files in downloads directory:")
+            for file in os.listdir('downloads'):
+                if str(video_id) in file:
+                    logger.info(f"Found leftover file: {file}")
+        
         db.delete(video)
         db.commit()
         logger.info(f"Deleted video record for ID: {video_id}")

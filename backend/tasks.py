@@ -33,8 +33,8 @@ def download_video_task(video_id: int):
         video.status = VideoStatus.DOWNLOADING
         video.download_info = {
             'progress': 0.0,
-            'speed': 'N/A',
-            'eta': 'N/A',
+            'speed': '',
+            'eta': '',
             'total_bytes': 0,
             'downloaded_bytes': 0,
             'elapsed': 0
@@ -47,6 +47,8 @@ def download_video_task(video_id: int):
         
         def progress_hook(d):
             nonlocal last_update_time
+            logger.info(f"Progress hook called with data: {d}")
+            
             if d['status'] == 'downloading':
                 current_time = time.time()
                 if current_time - last_update_time < update_interval:
@@ -54,18 +56,41 @@ def download_video_task(video_id: int):
                 
                 last_update_time = current_time
                 try:
+                    # Log all available keys in the progress dictionary
+                    logger.info(f"Available keys in progress data: {list(d.keys())}")
+                    
                     # Extract progress information
                     percent_str = d.get('_percent_str', '0%').strip()
+                    logger.info(f"Percent string: {percent_str}")
+                    
                     try:
                         progress = float(percent_str.replace('%', ''))
+                        logger.info(f"Parsed progress: {progress}")
+                        
+                        # Format speed and ETA
+                        speed = d.get('speed', 0)
+                        logger.info(f"Raw speed value: {speed}")
+                        speed_str = ''
+                        if speed and speed > 0:
+                            speed_str = f"{speed/1024/1024:.1f} MB/s"
+                        
+                        eta = d.get('eta', None)
+                        logger.info(f"Raw ETA value: {eta}")
+                        eta_str = ''
+                        if eta is not None and eta > 0:
+                            minutes = eta // 60
+                            seconds = eta % 60
+                            eta_str = f"{minutes}m {seconds}s"
+                        
                         download_info = {
                             'progress': progress,
-                            'speed': d.get('speed_str', 'N/A'),
-                            'eta': d.get('eta_str', 'N/A'),
+                            'speed': speed_str,
+                            'eta': eta_str,
                             'total_bytes': d.get('total_bytes', 0),
                             'downloaded_bytes': d.get('downloaded_bytes', 0),
                             'elapsed': d.get('elapsed', 0),
                         }
+                        logger.info(f"Final download info: {download_info}")
                         video.download_info = download_info
                         db.commit()
                     except ValueError as e:
@@ -73,11 +98,12 @@ def download_video_task(video_id: int):
                 except Exception as e:
                     logger.error(f"Error updating progress for video {video_id}: {e}")
             elif d['status'] == 'finished':
+                logger.info("Download finished, updating final status")
                 try:
                     video.download_info = {
                         'progress': 100.0,
-                        'speed': 'N/A',
-                        'eta': 'N/A',
+                        'speed': '',
+                        'eta': '',
                         'total_bytes': d.get('total_bytes', 0),
                         'downloaded_bytes': d.get('total_bytes', 0),
                         'elapsed': d.get('elapsed', 0),
@@ -88,30 +114,70 @@ def download_video_task(video_id: int):
 
         ydl_opts = {
             'format': 'best',
-            'outtmpl': f'downloads/{video_id}.%(ext)s',
+            'outtmpl': os.path.join('downloads', f'{video_id}.%(ext)s'),
             'progress_hooks': [progress_hook],
+            'progress_with_newline': True,
+            'noprogress': False,
+            'quiet': False,
+            'no_warnings': False,
+            'verbose': True,
+            'progress': True,
+            'newline': True,
+            'updatetime': True,
+            'writedescription': True,
+            'writeinfojson': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en'],
+            'writethumbnail': True,
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
         }
 
         logger.info(f"Starting download for URL: {video.url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            logger.info("Created YoutubeDL instance")
             info = ydl.extract_info(video.url, download=True)
             logger.info(f"Download completed for video {video_id}")
+            logger.info(f"Extracted info: {info}")
             
             video.title = info.get('title')
             video.thumbnail_url = info.get('thumbnail')
-            video.file_path = ydl.prepare_filename(info)
             
-            if video.file_path and os.path.isabs(video.file_path):
-                video.file_path = os.path.relpath(video.file_path, os.getcwd())
-
-            if not os.path.exists(video.file_path):
-                logger.error(f"File not found at {video.file_path}")
-                raise FileNotFoundError(f"File not found at {video.file_path}")
-            
-            video.file_size = os.path.getsize(video.file_path)
-            video.status = VideoStatus.DOWNLOADED
-            db.commit()
-            logger.info(f"Video {video_id} marked as DOWNLOADED")
+            # Get the downloaded file path
+            downloaded_file = ydl.prepare_filename(info)
+            if os.path.exists(downloaded_file):
+                # Get all files that were just generated
+                generated_files = set()
+                for ext in ['.mp4', '.webm', '.mkv', '.m4a', '.mp3', '.description', '.en.vtt', '.vtt', '.srt', '.webp', '.jpg', '.jpeg', '.png', '.json', '.info.json']:
+                    for suffix in ['', '.en', '.en-US', '.en-GB']:
+                        file_path = os.path.join('downloads', f'{video_id}{suffix}{ext}')
+                        if os.path.exists(file_path):
+                            generated_files.add(file_path)
+                
+                # Clean up any existing files for this video_id that weren't just generated
+                if os.path.exists('downloads'):
+                    for file in os.listdir('downloads'):
+                        if str(video_id) in file:
+                            file_path = os.path.join('downloads', file)
+                            if file_path not in generated_files:
+                                try:
+                                    os.remove(file_path)
+                                    logger.info(f"Cleaned up old file: {file_path}")
+                                except OSError as e:
+                                    logger.error(f"Error cleaning up old file {file_path}: {e}")
+                
+                # Update the file path in the database
+                video.file_path = os.path.relpath(downloaded_file, os.getcwd())
+                video.file_size = os.path.getsize(downloaded_file)
+                video.status = VideoStatus.DOWNLOADED
+                db.commit()
+                logger.info(f"Video {video_id} marked as DOWNLOADED")
+            else:
+                logger.error(f"Downloaded file not found at {downloaded_file}")
+                raise FileNotFoundError(f"Downloaded file not found at {downloaded_file}")
             
     except Exception as e:
         logger.error(f"Error downloading video {video_id}: {str(e)}")
@@ -119,8 +185,8 @@ def download_video_task(video_id: int):
         video.error_message = str(e)
         video.download_info = {
             'progress': 0.0,
-            'speed': 'N/A',
-            'eta': 'N/A',
+            'speed': '',
+            'eta': '',
             'total_bytes': 0,
             'downloaded_bytes': 0,
             'elapsed': 0
