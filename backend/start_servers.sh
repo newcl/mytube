@@ -7,22 +7,32 @@ set -e
 cd "$(dirname "$0")"
 BACKEND_DIR="$(pwd)"
 
-# Start FastAPI server in the background
+# Create a directory for PID files
+mkdir -p "$BACKEND_DIR/pids"
+
+# Function to save PID to file
+save_pid() {
+    local pid=$1
+    local name=$2
+    echo "$pid" > "$BACKEND_DIR/pids/$name.pid"
+}
+
+# Start FastAPI server in the foreground
 echo "Starting FastAPI server..."
 ./start_fastapi.sh > "$BACKEND_DIR/fastapi.log" 2>&1 &
 FASTAPI_PID=$!
+save_pid "$FASTAPI_PID" "fastapi"
 
 # Start Huey consumer in the background
 echo "Starting Huey consumer..."
 ./start_huey.sh > "$BACKEND_DIR/huey.log" 2>&1 &
 HUEY_PID=$!
+save_pid "$HUEY_PID" "huey"
 
 # Function to handle script termination
 cleanup() {
     echo "Stopping servers..."
-    kill $FASTAPI_PID 2>/dev/null || true
-    kill $HUEY_PID 2>/dev/null || true
-    echo "Servers stopped."
+    ./stop_servers.sh
     exit 0
 }
 
@@ -34,5 +44,13 @@ echo "FastAPI running on http://localhost:8000"
 echo "Huey consumer is running"
 echo "Press Ctrl+C to stop both servers"
 
-# Keep script running and show logs
-tail -f "$BACKEND_DIR/fastapi.log" "$BACKEND_DIR/huey.log" 
+# Comment out the tail -f line to keep the script alive
+# tail -f "$BACKEND_DIR/fastapi.log" "$BACKEND_DIR/huey.log" &
+# TAIL_PID=$!
+# save_pid "$TAIL_PID" "tail"
+
+# Wait for the FastAPI process
+wait $FASTAPI_PID
+
+# Wait for the Huey process
+wait $HUEY_PID 

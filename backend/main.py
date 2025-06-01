@@ -1,20 +1,17 @@
-from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from api import router as api_router
 from database import Base, engine, SessionLocal
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import logging
 import os
 import urllib.parse
 import crud
 import models
-from tasks import download_video_task, progress_queue
-import json
-import asyncio
-import threading
+from tasks import download_video_task
 from sqlalchemy import text
 
 # Configure logging
@@ -75,30 +72,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Store active WebSocket connections
-active_connections: List[WebSocket] = []
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    logger.info("WebSocket connection attempt")
-    await websocket.accept()
-    logger.info("WebSocket connection accepted")
-    active_connections.append(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            logger.info(f"Received: {data}")
-            await websocket.send_text(f"Message received: {data}")
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
-        active_connections.remove(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        if websocket in active_connections:
-            active_connections.remove(websocket)
-    finally:
-        logger.info("WebSocket connection closed")
-
 # Include API router
 app.include_router(api_router, prefix="/api")
 
@@ -116,24 +89,6 @@ class VideoResponse(BaseModel):
     file_path: Optional[str]
     url: str
     download_info: Optional[dict]
-
-async def process_progress_queue():
-    """Process progress updates from the queue and send them to WebSocket clients"""
-    while True:
-        try:
-            # Get progress update from queue
-            update = progress_queue.get()
-            if update:
-                # Send to all connected clients
-                for connection in active_connections[:]:  # Create a copy of the list
-                    try:
-                        await connection.send_json(update)
-                    except:
-                        # Remove dead connections
-                        active_connections.remove(connection)
-        except Exception as e:
-            logger.error(f"Error processing progress queue: {e}")
-        await asyncio.sleep(0.1)  # Small delay to prevent CPU overuse
 
 @app.on_event("startup")
 async def startup_event():
@@ -154,9 +109,6 @@ async def startup_event():
             raise
         finally:
             db.close()
-        
-        # Start the progress queue processor
-        asyncio.create_task(process_progress_queue())
         
         # Create downloads directory if it doesn't exist
         os.makedirs("downloads", exist_ok=True)
@@ -195,5 +147,6 @@ async def root():
     return {"message": "Welcome to MyTube API"}
 
 if __name__ == "__main__":
+    print("Starting FastAPI server...111")
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000) 

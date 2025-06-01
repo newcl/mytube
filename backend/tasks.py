@@ -5,18 +5,11 @@ import yt_dlp
 import os
 import logging
 import re
-import shutil
 import time
-import json
-from queue import Queue
-import threading
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-# Global queue for progress updates
-progress_queue = Queue()
 
 def sanitize_filename(filename: str) -> str:
     # Replace spaces and special characters with underscores
@@ -75,13 +68,6 @@ def download_video_task(video_id: int):
                         }
                         video.download_info = download_info
                         db.commit()
-                        
-                        # Put progress update in queue
-                        progress_queue.put({
-                            'video_id': video_id,
-                            'type': 'progress',
-                            'data': download_info
-                        })
                     except ValueError as e:
                         logger.error(f"Could not parse progress string '{percent_str}': {e}")
                 except Exception as e:
@@ -97,12 +83,6 @@ def download_video_task(video_id: int):
                         'elapsed': d.get('elapsed', 0),
                     }
                     db.commit()
-                    # Put final progress update in queue
-                    progress_queue.put({
-                        'video_id': video_id,
-                        'type': 'progress',
-                        'data': video.download_info
-                    })
                 except Exception as e:
                     logger.error(f"Error updating final progress for video {video_id}: {e}")
 

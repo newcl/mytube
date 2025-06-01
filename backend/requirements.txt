@@ -1,6 +1,6 @@
 fastapi==0.115.12
 uvicorn==0.34.2
-huey[postgres]==2.5.3
+huey[redis]==2.5.3
 psycopg2-binary==2.9.10
 python-multipart==0.0.20
 yt-dlp==2025.5.22

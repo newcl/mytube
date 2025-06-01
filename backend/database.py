@@ -7,7 +7,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./mytube.db")
+def get_database_url():
+    # First try DATABASE_URL
+    if database_url := os.getenv("DATABASE_URL"):
+        return database_url
+    
+    # Then try individual POSTGRES_ variables
+    postgres_user = os.getenv("POSTGRES_USER", "mytube")
+    postgres_password = os.getenv("POSTGRES_PASSWORD", "123456")
+    postgres_host = os.getenv("POSTGRES_HOST", "localhost")
+    postgres_db = os.getenv("POSTGRES_DB", "mytube")
+    
+    return f"postgresql://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_db}"
+
+DATABASE_URL = get_database_url()
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
