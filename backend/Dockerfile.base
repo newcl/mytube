@@ -30,20 +30,6 @@ COPY <<EOF /app/entrypoint.sh
 #!/bin/bash
 set -e
 
-# Wait for database
-echo "Waiting for database..."
-while ! nc -z db 5432; do
-  sleep 0.1
-done
-echo "Database is ready!"
-
-# Wait for Redis
-echo "Waiting for Redis..."
-while ! nc -z redis 6379; do
-  sleep 0.1
-done
-echo "Redis is ready!"
-
 # Run migrations
 alembic upgrade head
 
@@ -52,6 +38,5 @@ exec "\$@"
 EOF
 
 RUN chmod +x /app/entrypoint.sh
-RUN apt-get update && apt-get install -y netcat-traditional && rm -rf /var/lib/apt/lists/*
 
 ENTRYPOINT ["/app/entrypoint.sh"] 
