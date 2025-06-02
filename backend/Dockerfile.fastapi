@@ -1,0 +1,13 @@
+FROM mytube-backend-base:latest
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# FastAPI specific environment variables
+ENV HOST=0.0.0.0
+ENV PORT=8000
+ENV WORKERS=4
+ENV LOG_LEVEL=info
+
+# Set the command to run FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"] 

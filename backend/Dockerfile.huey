@@ -1,0 +1,9 @@
+FROM mytube-backend-base:latest
+
+# Huey specific environment variables
+ENV HUEY_WORKERS=4
+ENV HUEY_VERBOSE=1
+ENV HUEY_LOG_LEVEL=INFO
+
+# Set the command to run Huey worker
+CMD ["python", "run_huey.py"] 

@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: huey
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: huey
+  template:
+    metadata:
+      labels:
+        app: huey
+    spec:
+      containers:
+      - name: huey
+        image: mytube-backend-huey:latest
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        volumeMounts:
+        - name: downloads
+          mountPath: /app/downloads
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: downloads
+        persistentVolumeClaim:
+          claimName: downloads-pvc 

@@ -1,0 +1,57 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p downloads pids
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Database configuration
+ENV DATABASE_URL=postgresql://postgres:postgres@db:5432/mytube
+ENV REDIS_URL=redis://redis:6379/0
+
+# Create entrypoint script
+COPY <<EOF /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+# Wait for database
+echo "Waiting for database..."
+while ! nc -z db 5432; do
+  sleep 0.1
+done
+echo "Database is ready!"
+
+# Wait for Redis
+echo "Waiting for Redis..."
+while ! nc -z redis 6379; do
+  sleep 0.1
+done
+echo "Redis is ready!"
+
+# Run migrations
+alembic upgrade head
+
+# Execute the main command
+exec "\$@"
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+RUN apt-get update && apt-get install -y netcat-traditional && rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["/app/entrypoint.sh"] 
