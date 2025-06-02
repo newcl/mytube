@@ -9,11 +9,17 @@ VERSION=$(date +%Y%m%d_%H%M%S)
 LATEST_TAG="${IMAGE_NAME}:latest"
 VERSION_TAG="${IMAGE_NAME}:${VERSION}"
 
+# Check if Docker is installed
+if ! command -v docker &> /dev/null; then
+    echo "Error: Docker is not installed. Please install Docker first."
+    exit 1
+fi
+
 echo "Building frontend application..."
 
 # Install dependencies
 echo "Installing dependencies..."
-npm install
+npm install --legacy-peer-deps
 
 # Build the application
 echo "Building application..."
