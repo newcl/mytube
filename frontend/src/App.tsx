@@ -6,7 +6,9 @@ import type { ColumnsType } from 'antd/es/table';
 const { Title } = Typography;
 
 // Get backend URL from environment variable with fallback
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+console.log('Using BACKEND_URL:', BACKEND_URL);
+console.log('Environment variables:', import.meta.env);
 
 interface Video {
   id: string;

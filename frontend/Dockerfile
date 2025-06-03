@@ -1,5 +1,11 @@
 # Build stage
-FROM node:18-alpine as build
+FROM node:20-alpine as build
+
+# Print the build arg for debugging
+ARG VITE_BACKEND_URL
+ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
+
+RUN echo "Building with VITE_BACKEND_URL=${VITE_BACKEND_URL}"
 
 WORKDIR /app
 
@@ -13,7 +19,7 @@ RUN npm install
 COPY . .
 
 # Build the app
-RUN npm run build
+RUN VITE_BACKEND_URL=${VITE_BACKEND_URL} npm run build
 
 # Production stage
 FROM nginx:alpine

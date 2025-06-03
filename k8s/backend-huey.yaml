@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: huey
+  namespace: mytube
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: huey
@@ -14,7 +15,8 @@ spec:
     spec:
       containers:
       - name: huey
-        image: mytube-backend-huey:latest
+        image: localhost:5000/mytube-backend-huey:latest
+        imagePullPolicy: Always
         envFrom:
         - configMapRef:
             name: backend-config

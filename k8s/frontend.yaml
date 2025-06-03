@@ -1,16 +1,10 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: frontend-config
-data:
-  REACT_APP_BACKEND_URL: "http://fastapi"
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
+  namespace: mytube
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: frontend
@@ -21,12 +15,10 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: mytube-frontend:latest
+        image: localhost:5000/mytube-frontend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
-        envFrom:
-        - configMapRef:
-            name: frontend-config
         readinessProbe:
           httpGet:
             path: /
@@ -51,20 +43,23 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend
+  namespace: mytube
 spec:
+  type: LoadBalancer
   selector:
     app: frontend
   ports:
   - port: 80
     targetPort: 80
-  type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: frontend-ingress
+  namespace: mytube
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: "web"
 spec:
   rules:
   - http:

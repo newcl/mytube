@@ -3,7 +3,8 @@ kind: ConfigMap
 metadata:
   name: backend-config
 data:
-  DATABASE_URL: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+  POSTGRES_HOST: "192.168.1.50"
+  DATABASE_URL: "postgresql://mytube:123456@192.168.1.50:5432/mytube"
   REDIS_URL: "redis://redis:6379/0"
   HOST: "0.0.0.0"
   PORT: "8000"

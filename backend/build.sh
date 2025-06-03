@@ -37,7 +37,9 @@ echo "    - ${HUEY_IMAGE}:${VERSION}"
 # Optional: Push to registry if needed
 # echo "Pushing to registry..."
 # docker push ${BASE_IMAGE}:latest
-# docker push ${FASTAPI_IMAGE}:latest
+docker tag ${FASTAPI_IMAGE}:latest localhost:5000/${FASTAPI_IMAGE}:latest
+docker push localhost:5000/${FASTAPI_IMAGE}:latest
 # docker push ${FASTAPI_IMAGE}:${VERSION}
-# docker push ${HUEY_IMAGE}:latest
+docker tag ${HUEY_IMAGE}:latest localhost:5000/${HUEY_IMAGE}:latest
+docker push localhost:5000/${HUEY_IMAGE}:latest
 # docker push ${HUEY_IMAGE}:${VERSION} 
