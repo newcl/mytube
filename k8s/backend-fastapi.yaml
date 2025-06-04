@@ -5,7 +5,7 @@ metadata:
   namespace: mytube
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
@@ -16,7 +16,7 @@ metadata:
   name: fastapi
   namespace: mytube
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: fastapi
@@ -67,4 +67,24 @@ spec:
   ports:
   - port: 80
     targetPort: 8000
-  type: ClusterIP 
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fastapi-ingress
+  namespace: mytube
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: "web"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: fastapi
+            port:
+              number: 80 

@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: backend-config
+  namespace: mytube
 data:
   POSTGRES_HOST: "192.168.1.50"
   DATABASE_URL: "postgresql://mytube:123456@192.168.1.50:5432/mytube"

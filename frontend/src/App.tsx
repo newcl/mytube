@@ -6,7 +6,7 @@ import type { ColumnsType } from 'antd/es/table';
 const { Title } = Typography;
 
 // Get backend URL from environment variable with fallback
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '/api';
 console.log('Using BACKEND_URL:', BACKEND_URL);
 console.log('Environment variables:', import.meta.env);
 
@@ -44,7 +44,7 @@ function App() {
   useEffect(() => {
     const fetchVideos = async () => {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/videos/`);
+        const response = await fetch(`${BACKEND_URL}/videos/`);
         if (!response.ok) throw new Error('Failed to fetch videos');
         const data = await response.json();
         setVideos(data);
@@ -81,7 +81,7 @@ function App() {
         // Fetch each downloading video
         const updatedVideos = await Promise.all(
           downloadingIds.map(async (id) => {
-            const response = await fetch(`${BACKEND_URL}/api/videos/${id}/`);
+            const response = await fetch(`${BACKEND_URL}/videos/${id}/`);
             if (!response.ok) throw new Error(`Failed to fetch video ${id}`);
             const data = await response.json();
             return data;
@@ -169,7 +169,7 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/videos/`, {
+      const response = await fetch(`${BACKEND_URL}/videos/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -193,7 +193,7 @@ function App() {
       
       // Immediately fetch the video status to ensure we have the latest state
       try {
-        const statusResponse = await fetch(`${BACKEND_URL}/api/videos/${data.id}/`);
+        const statusResponse = await fetch(`${BACKEND_URL}/videos/${data.id}/`);
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
           setVideos(prev => prev.map(v => v.id === data.id ? statusData : v));
@@ -211,7 +211,7 @@ function App() {
 
   const handleDelete = async (id: string) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/videos/${id}`, {
+      const response = await fetch(`${BACKEND_URL}/videos/${id}`, {
         method: 'DELETE',
       });
 
@@ -228,7 +228,7 @@ function App() {
   };
 
   const handlePlay = (video: Video) => {
-    window.open(`${BACKEND_URL}/api/videos/${video.id}/stream`, '_blank');
+    window.open(`${BACKEND_URL}/videos/${video.id}/stream`, '_blank');
   };
 
   const columns: ColumnsType<Video> = [

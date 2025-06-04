@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+@router.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
 @router.post("/videos/", response_model=VideoOut)
 def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     logger.info(f"Received request to download video: {video.url}")
