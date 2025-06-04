@@ -5,7 +5,8 @@ metadata:
   namespace: mytube
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
+  storageClassName: longhorn
   resources:
     requests:
       storage: 10Gi

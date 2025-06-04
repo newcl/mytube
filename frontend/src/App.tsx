@@ -141,6 +141,8 @@ function App() {
     console.log("extracted youtube url: " + youtubeUrl);
     if (youtubeUrl) {
       handleDownload(youtubeUrl);
+      // Rewrite URL to just show the domain
+      window.history.replaceState({}, '', '/');
     }
   }, []);
 
