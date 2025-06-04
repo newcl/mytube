@@ -8,7 +8,7 @@ IMAGE_NAME="mytube-frontend"
 VERSION=$(date +%Y%m%d_%H%M%S)
 LATEST_TAG="${IMAGE_NAME}:latest"
 VERSION_TAG="${IMAGE_NAME}:${VERSION}"
-BACKEND_URL="http://fastapi.mytube.svc.cluster.local/api"
+BACKEND_URL="http://lhmswww.com/api"
 
 # Print the backend URL for debugging
 echo "Using BACKEND_URL: ${BACKEND_URL}"
