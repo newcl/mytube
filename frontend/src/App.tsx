@@ -140,9 +140,11 @@ function App() {
     const youtubeUrl = extractYouTubeUrl(href);
     console.log("extracted youtube url: " + youtubeUrl);
     if (youtubeUrl) {
-      handleDownload(youtubeUrl);
-      // Rewrite URL to just show the domain
-      window.history.replaceState({}, '', '/');
+      // Wait for download to be initiated before redirecting
+      handleDownload(youtubeUrl).then(() => {
+        // Redirect to root to ensure clean state
+        window.location.href = '/';
+      });
     }
   }, []);
 
