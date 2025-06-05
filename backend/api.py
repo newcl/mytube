@@ -20,7 +20,7 @@ router = APIRouter()
 def health_check():
     return {"status": "healthy"}
 
-@router.post("/videos/", response_model=VideoOut)
+@router.post("/videos", response_model=VideoOut)
 def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     logger.info(f"Received request to download video: {video.url}")
     # Check if video already exists
@@ -40,7 +40,7 @@ def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     
     return db_video
 
-@router.get("/videos/", response_model=List[VideoOut])
+@router.get("/videos", response_model=List[VideoOut])
 def list_videos(query: VideoQuery = None, db: Session = Depends(get_db)):
     logger.info("Received request to list videos")
     try:
@@ -70,8 +70,8 @@ def retry_video(video_id: int, db: Session = Depends(get_db)):
     download_video_task(video_id)
     return {"message": "Download restarted"}
 
-@router.get("/videos/{video_id}/stream/")
-def stream_video(video_id: int, db: Session = Depends(get_db)):
+@router.get("/videos/{video_id}/stream")
+async def stream_video(video_id: int, db: Session = Depends(get_db)):
     video = crud.get_video(db, video_id)
     if not video or not video.file_path:
         raise HTTPException(status_code=404, detail="Video not found or file not available")

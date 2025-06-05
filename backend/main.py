@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from api import router as api_router
+from middleware import TrailingSlashMiddleware
 from database import Base, engine, SessionLocal
 from pydantic import BaseModel
 from typing import Optional
@@ -19,6 +20,9 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Add trailing slash middleware
+app.add_middleware(TrailingSlashMiddleware)
 
 # Custom static file handler for downloads
 @app.get("/downloads/{filename:path}")
@@ -63,17 +67,17 @@ async def get_download(filename: str):
         logger.error(f"Error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Configure CORS - commented out as frontend and API are now on same domain
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+# Configure CORS to allow requests from the frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://192.168.1.50:5173"],  # Frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Include API router
-app.include_router(api_router, prefix="/api")
+# Include API router with consistent /api prefix
+app.include_router(api_router, prefix="/api", tags=["api"])
 
 # Mount the downloads directory
 app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
