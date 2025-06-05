@@ -1,7 +1,9 @@
+import { Table, Button, Input, Space, message, Typography, Image, Tag } from 'antd';
+import { DownloadOutlined, PlayCircleOutlined, CopyOutlined, DeleteOutlined, PictureOutlined } from '@ant-design/icons';
 import { useState, useEffect, useRef } from 'react';
-import { Table, Button, Input, message, Space, Typography, Tag, Image } from 'antd';
-import { DownloadOutlined, PlayCircleOutlined, DeleteOutlined, CopyOutlined, PictureOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { Card } from 'antd';
+import { useMediaQuery } from 'react-responsive';
 
 const { Title } = Typography;
 
@@ -13,8 +15,9 @@ console.log('Environment variables:', import.meta.env);
 interface Video {
   id: string;
   url: string;
+  title?: string;
   status: 'PENDING' | 'DOWNLOADING' | 'DOWNLOADED' | 'FAILED';
-  error?: string;
+  error_message?: string;
   created_at?: string;
   thumbnail_url?: string;
   download_info?: {
@@ -23,7 +26,6 @@ interface Video {
     eta: string;
     total_bytes: number;
     downloaded_bytes: number;
-    elapsed: number;
   };
 }
 
@@ -34,11 +36,37 @@ function App() {
   const [isDownloading, setIsDownloading] = useState(false);
   const processedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMobile = useMediaQuery({ maxWidth: 768 });
   
   function extractYouTubeUrl(href: string) {
     const index = href.lastIndexOf("https://");
     return index !== -1 ? href.substring(index) : null;
   }
+
+  // Function to check if a string is a valid YouTube URL
+  const isValidYouTubeUrl = (url: string): boolean => {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
+    return youtubeRegex.test(url);
+  };
+
+  // Function to handle clipboard paste
+  const handleClipboardPaste = async () => {
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+      if (isValidYouTubeUrl(clipboardText)) {
+        setUrl(clipboardText);
+        message.success('YouTube URL pasted from clipboard');
+      }
+    } catch (error) {
+      console.error('Failed to read clipboard:', error);
+      message.error('Could not access clipboard');
+    }
+  };
+
+  // Check clipboard on component mount
+  useEffect(() => {
+    handleClipboardPaste();
+  }, []);
 
   // Fetch videos on initial load
   useEffect(() => {
@@ -241,6 +269,7 @@ function App() {
       dataIndex: 'thumbnail_url',
       key: 'thumbnail_url',
       width: 225,
+      responsive: ['md'],
       render: (url: string) => (
         <div style={{ width: 202, height: 114, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' }}>
           {url ? (
@@ -259,11 +288,22 @@ function App() {
       ),
     },
     {
+      title: 'Title',
+      dataIndex: 'title',
+      key: 'title',
+      ellipsis: true,
+      width: '30%',
+      render: (title: string) => (
+        <Typography.Text ellipsis>{title || 'Loading...'}</Typography.Text>
+      ),
+    },
+    {
       title: 'URL',
       dataIndex: 'url',
       key: 'url',
       ellipsis: true,
       width: '40%',
+      responsive: ['md'],
       render: (url: string) => (
         <Space>
           <Typography.Text ellipsis>{url}</Typography.Text>
@@ -282,37 +322,32 @@ function App() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: '20%',
-      render: (status: string, record: Video) => (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Tag color={
-            status === 'DOWNLOADED' ? 'success' :
-            status === 'FAILED' ? 'error' :
-            status === 'DOWNLOADING' ? 'processing' :
-            'default'
-          }>
-            {status}
-          </Tag>
-          {status === 'DOWNLOADING' && record.download_info && (
-            <div style={{ fontSize: '12px', color: '#666' }}>
-              <div>Progress: {record.download_info.progress}%</div>
-              <div>Speed: {record.download_info.speed}</div>
-              <div>ETA: {record.download_info.eta}</div>
-              <div>Downloaded: {Math.round(record.download_info.downloaded_bytes / 1024 / 1024)}MB / {Math.round(record.download_info.total_bytes / 1024 / 1024)}MB</div>
-            </div>
-          )}
-          {record.error && (
-            <Typography.Text type="danger">{record.error}</Typography.Text>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: 'Created At',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: '20%',
-      render: (date: string) => date ? new Date(date).toLocaleString() : '-',
+      width: '15%',
+      render: (status: string) => {
+        let color = 'default';
+        let text = status;
+        
+        switch (status) {
+          case 'DOWNLOADING':
+            color = 'processing';
+            text = 'Downloading';
+            break;
+          case 'DOWNLOADED':
+            color = 'success';
+            text = 'Ready';
+            break;
+          case 'ERROR':
+            color = 'error';
+            text = 'Error';
+            break;
+          case 'PENDING':
+            color = 'warning';
+            text = 'Pending';
+            break;
+        }
+        
+        return <Tag color={color}>{text}</Tag>;
+      },
     },
     {
       title: 'Actions',
@@ -325,6 +360,7 @@ function App() {
             icon={<PlayCircleOutlined />}
             onClick={() => handlePlay(record)}
             disabled={record.status !== 'DOWNLOADED'}
+            title="Play"
           />
           <Button
             icon={<CopyOutlined />}
@@ -332,27 +368,128 @@ function App() {
               navigator.clipboard.writeText(record.url)
               message.success('URL copied to clipboard')
             }}
+            title="Copy URL"
           />
           <Button
             danger
             icon={<DeleteOutlined />}
             onClick={() => handleDelete(record.id)}
+            title="Delete"
           />
         </Space>
       ),
     },
   ];
 
+  const renderCard = (video: Video) => {
+    let statusColor = 'default';
+    let statusText = video.status;
+    
+    switch (video.status) {
+      case 'DOWNLOADING':
+        statusColor = 'processing';
+        statusText = 'DOWNLOADING';
+        break;
+      case 'DOWNLOADED':
+        statusColor = 'success';
+        statusText = 'DOWNLOADED';
+        break;
+      case 'FAILED':
+        statusColor = 'error';
+        statusText = 'FAILED';
+        break;
+      case 'PENDING':
+        statusColor = 'warning';
+        statusText = 'PENDING';
+        break;
+    }
+
+    return (
+      <Card 
+        key={video.id}
+        className="mb-4"
+        cover={video.thumbnail_url ? (
+          <div style={{ height: 200, overflow: 'hidden' }}>
+            <Image
+              src={video.thumbnail_url}
+              alt="thumbnail"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              preview={false}
+            />
+          </div>
+        ) : (
+          <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' }}>
+            <PictureOutlined style={{ fontSize: 48, color: '#999' }} />
+          </div>
+        )}
+      >
+        <Card.Meta
+          title={
+            <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: 'bold' }}>
+              {video.title || 'Loading...'}
+            </Typography.Text>
+          }
+          description={
+            <div>
+              <div className="mb-2">
+                <Tag color={statusColor}>{statusText}</Tag>
+                {video.error_message && (
+                  <Typography.Text type="danger" className="ml-2">
+                    {video.error_message}
+                  </Typography.Text>
+                )}
+              </div>
+              <Typography.Text ellipsis type="secondary" style={{ fontSize: '14px' }}>
+                {video.url}
+              </Typography.Text>
+              {video.download_info && video.status === 'DOWNLOADING' && (
+                <div className="mt-2 text-sm text-gray-500">
+                  <div>Progress: {video.download_info.progress}%</div>
+                  <div>Speed: {video.download_info.speed}</div>
+                  <div>ETA: {video.download_info.eta}</div>
+                  <div>Downloaded: {Math.round(video.download_info.downloaded_bytes / 1024 / 1024)}MB / {Math.round(video.download_info.total_bytes / 1024 / 1024)}MB</div>
+                </div>
+              )}
+            </div>
+          }
+        />
+        <div className="mt-4 flex justify-end space-x-2">
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={() => handlePlay(video)}
+            disabled={video.status !== 'DOWNLOADED'}
+            title="Play"
+          />
+          <Button
+            icon={<CopyOutlined />}
+            onClick={() => {
+              navigator.clipboard.writeText(video.url);
+              message.success('URL copied to clipboard');
+            }}
+            title="Copy URL"
+          />
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(video.id)}
+            title="Delete"
+          />
+        </div>
+      </Card>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
-        <Title level={2} className="mb-8">
+        <Title level={2} className="mb-4 sm:mb-8 text-center sm:text-left">
           <a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>
             YouTube Video Downloader
           </a>
         </Title>
         
-        <div className="bg-white p-6 rounded-lg shadow-sm mb-8">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm mb-4 sm:mb-8">
           <Space.Compact style={{ width: '100%' }}>
             <Input
               placeholder="Enter YouTube URL"
@@ -360,6 +497,14 @@ function App() {
               onChange={(e) => setUrl(e.target.value)}
               onPressEnter={() => handleDownload()}
               style={{ flex: 1 }}
+              suffix={
+                <Button
+                  type="text"
+                  icon={<CopyOutlined />}
+                  onClick={handleClipboardPaste}
+                  title="Paste from clipboard"
+                />
+              }
             />
             <Button
               type="primary"
@@ -367,18 +512,30 @@ function App() {
               onClick={() => handleDownload()}
               loading={loading}
             >
-              Download
+              <span className="hidden sm:inline">Download</span>
             </Button>
           </Space.Compact>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <Table
-            columns={columns}
-            dataSource={videos}
-            rowKey="id"
-            pagination={{ pageSize: 10 }}
-          />
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
+          {isMobile ? (
+            <div>
+              {videos.map(video => renderCard(video))}
+            </div>
+          ) : (
+            <Table
+              columns={columns}
+              dataSource={videos}
+              rowKey="id"
+              pagination={{ 
+                pageSize: 10,
+                responsive: true,
+                showSizeChanger: true,
+                showTotal: (total) => `Total ${total} items`
+              }}
+              scroll={{ x: 'max-content' }}
+            />
+          )}
         </div>
       </div>
     </div>

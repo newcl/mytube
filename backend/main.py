@@ -63,14 +63,14 @@ async def get_download(filename: str):
         logger.error(f"Error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Configure CORS - commented out as frontend and API are now on same domain
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # Include API router
 app.include_router(api_router, prefix="/api")
@@ -116,31 +116,6 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Startup failed: {e}")
         raise
-
-@app.get("/test-video")
-async def test_video():
-    """Test endpoint to serve a video file directly"""
-    try:
-        # Get the first video file from downloads directory
-        downloads_dir = "downloads"
-        if not os.path.exists(downloads_dir):
-            raise HTTPException(status_code=404, detail="Downloads directory not found")
-            
-        video_files = [f for f in os.listdir(downloads_dir) if f.endswith('.mp4')]
-        if not video_files:
-            raise HTTPException(status_code=404, detail="No video files found")
-            
-        video_path = os.path.join(downloads_dir, video_files[0])
-        logger.info(f"Serving test video: {video_path}")
-        
-        return FileResponse(
-            path=video_path,
-            media_type="video/mp4",
-            filename=video_files[0]
-        )
-    except Exception as e:
-        logger.error(f"Error serving test video: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():
