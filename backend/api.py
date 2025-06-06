@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Video, VideoStatus
 from schemas import VideoCreate, VideoOut, VideoUpdateStatus, VideoQuery
 from tasks import download_video_task
-from typing import List
+from typing import List, Dict, Any
 import crud
 import logging
-from fastapi.responses import FileResponse
+import json
+import asyncio
+from fastapi.responses import FileResponse, StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 import mimetypes
 
 # Configure logging
@@ -81,7 +84,56 @@ async def stream_video(video_id: int, db: Session = Depends(get_db)):
     if not mime_type:
         mime_type = "application/octet-stream" # Default to generic binary if type cannot be guessed
 
-    return FileResponse(video.file_path, media_type=mime_type)
+    return FileResponse(video.file_path, media_type=mime_type, filename=os.path.basename(video.file_path))
+
+@router.get("/videos/{video_id}/progress")
+async def video_progress(video_id: int, db: Session = Depends(get_db)):
+    """SSE endpoint for streaming download progress updates"""
+    async def event_generator():
+        last_progress = -1
+        
+        while True:
+            # Get fresh video data
+            db_video = crud.get_video(db, video_id)
+            if not db_video:
+                yield {"event": "error", "data": json.dumps({"message": "Video not found"})}
+                break
+                
+            # Check if download is complete or failed
+            if db_video.status in ['DOWNLOADED', 'FAILED']:
+                yield {
+                    "event": "end",
+                    "data": json.dumps({
+                        "status": db_video.status.lower(),
+                        "progress": 100 if db_video.status == 'DOWNLOADED' else 0,
+                        "message": db_video.error_message or ""
+                    })
+                }
+                break
+                
+            # Get current progress
+            current_progress = db_video.download_info.get('progress', 0) if db_video.download_info else 0
+            
+            # Only send update if progress changed
+            if current_progress > last_progress:
+                last_progress = current_progress
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "progress": current_progress,
+                        "status": db_video.status.lower(),
+                        "speed": db_video.download_info.get('speed', '') if db_video.download_info else '',
+                        "eta": db_video.download_info.get('eta', '') if db_video.download_info else '',
+                        "total_bytes": db_video.download_info.get('total_bytes', 0) if db_video.download_info else 0,
+                        "downloaded_bytes": db_video.download_info.get('downloaded_bytes', 0) if db_video.download_info else 0
+                    })
+                }
+            
+            # Wait before next update
+            await asyncio.sleep(1)
+    
+    # Return the SSE response
+    return EventSourceResponse(event_generator())
 
 @router.get("/videos/{video_id}", response_model=VideoOut)
 def get_video(video_id: int, db: Session = Depends(get_db)):

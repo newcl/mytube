@@ -12,6 +12,7 @@ import {
   Image,
   Tooltip,
   Grid,
+  Progress,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { 
@@ -50,7 +51,107 @@ export default function HomePage() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const hasFetched = useRef(false);
+  // EventSource is managed by useEffect, no need to store in state
+  const eventSourceRef = useRef<EventSource | null>(null);
 
+
+  // Setup SSE connections for each downloading video
+  useEffect(() => {
+    const eventSources: Record<string, { es: EventSource, retryCount: number }> = {};
+    const RETRY_LIMIT = 3;
+    const RETRY_DELAY = 3000; // 3 seconds
+
+    const setupEventSource = (videoId: string) => {
+      if (eventSources[videoId]) return; // Already set up
+
+      const sseUrl = new URL(`/api/videos/${videoId}/progress`, BACKEND_URL).toString();
+      const es = new EventSource(sseUrl);
+      
+      // Initialize retry count
+      eventSources[videoId] = { es, retryCount: 0 };
+
+      const handleMessage = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'progress') {
+            const progressData = JSON.parse(data.data);
+            setVideos(prev => prev.map(v => 
+              v.id === videoId ? {
+                ...v,
+                status: progressData.status || v.status,
+                download_info: {
+                  ...(v.download_info || {}),
+                  progress: progressData.progress,
+                  speed: progressData.speed || (v.download_info?.speed || ''),
+                  eta: progressData.eta || (v.download_info?.eta || ''),
+                  total_bytes: progressData.total_bytes || (v.download_info?.total_bytes || 0),
+                  downloaded_bytes: progressData.downloaded_bytes || (v.download_info?.downloaded_bytes || 0)
+                }
+              } : v
+            ));
+          } else if (data.event === 'end') {
+            const endData = JSON.parse(data.data);
+            setVideos(prev => prev.map(v => 
+              v.id === videoId ? {
+                ...v,
+                status: endData.status,
+                error_message: endData.message || undefined
+              } : v
+            ));
+            // Close the connection when download is complete
+            cleanupEventSource(videoId);
+          }
+        } catch (err) {
+          console.error(`Error processing SSE message for video ${videoId}:`, err);
+        }
+      };
+
+      const handleError = () => {
+        const currentRetryCount = eventSources[videoId]?.retryCount || 0;
+        
+        if (currentRetryCount < RETRY_LIMIT) {
+          console.log(`Attempting to reconnect for video ${videoId} (${currentRetryCount + 1}/${RETRY_LIMIT})`);
+          // Clean up the current connection
+          cleanupEventSource(videoId);
+          // Schedule reconnection
+          setTimeout(() => setupEventSource(videoId), RETRY_DELAY * (currentRetryCount + 1));
+          // Increment retry count
+          if (eventSources[videoId]) {
+            eventSources[videoId].retryCount = currentRetryCount + 1;
+          }
+        } else {
+          console.error(`Max retries reached for video ${videoId}. Giving up.`);
+          cleanupEventSource(videoId);
+        }
+      };
+
+      es.onmessage = handleMessage;
+      es.onerror = handleError;
+    };
+
+    const cleanupEventSource = (videoId: string) => {
+      if (eventSources[videoId]) {
+        try {
+          eventSources[videoId].es.close();
+        } catch (e) {
+          console.error(`Error closing SSE connection for video ${videoId}:`, e);
+        }
+        delete eventSources[videoId];
+      }
+    };
+
+    // Create SSE connections for downloading/pending videos
+    videos.forEach(video => {
+      if ((video.status === 'DOWNLOADING' || video.status === 'PENDING') && !eventSources[video.id]) {
+        setupEventSource(video.id);
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      Object.keys(eventSources).forEach(cleanupEventSource);
+    };
+  }, [videos]); // Re-run when videos array changes
 
   // Fetch videos on component mount
   useEffect(() => {
@@ -60,9 +161,7 @@ export default function HomePage() {
     console.log('HomePage mounted, fetching videos...');
     
     const fetchVideos = async () => {
-      // Ensure no double slashes and no trailing slash
-      const endpoint = '/videos';
-      const url = `${BACKEND_URL}${endpoint}`.replace(/([^:]\/)\/+/g, '$1');
+      const url = new URL('/api/videos', BACKEND_URL).toString();
       console.log('Fetching videos from:', url);
       const startTime = Date.now();
       
@@ -98,11 +197,11 @@ export default function HomePage() {
 
     setLoading(true);
     try {
-      const url = `${BACKEND_URL}/videos`.replace(/([^:]\/)\/+/g, '$1');
-      const response = await fetch(url, {
+      const apiUrl = new URL('/api/videos', BACKEND_URL).toString();
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: url.trim() }),
       });
 
       if (!response.ok) throw new Error('Failed to start download');
@@ -123,14 +222,14 @@ export default function HomePage() {
 
   const handlePlay = (video: Video) => {
     if (video.status === 'DOWNLOADED') {
-      const url = `${BACKEND_URL}/videos/${video.id}/stream`.replace(/([^:]\/)\/+/g, '$1');
+      const url = new URL(`/api/videos/${video.id}/stream`, BACKEND_URL).toString();
       window.open(url, '_blank');
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      const url = `${BACKEND_URL}/videos/${id}`.replace(/([^:]\/)\/+/g, '$1');
+      const url = new URL(`/api/videos/${id}`, BACKEND_URL).toString();
       const response = await fetch(url, {
         method: 'DELETE',
       });
@@ -141,6 +240,42 @@ export default function HomePage() {
       setVideos(prev => prev.filter(v => v.id !== id));
     } catch (error) {
       message.error('Failed to delete video');
+    }
+  };
+  
+
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      // Try the modern clipboard API first
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (!successful) {
+          throw new Error('Copy command failed');
+        }
+        return true;
+      } catch (err) {
+        console.error('Fallback copy failed:', err);
+        return false;
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    } catch (err) {
+      console.error('Could not copy text:', err);
+      return false;
     }
   };
 
@@ -201,9 +336,13 @@ export default function HomePage() {
           <Button
             type="text"
             icon={<CopyOutlined />}
-            onClick={() => {
-              navigator.clipboard.writeText(url);
-              message.success('URL copied to clipboard');
+            onClick={async () => {
+              const success = await copyToClipboard(url);
+              if (success) {
+                message.success('URL copied to clipboard');
+              } else {
+                message.warning('Failed to copy URL. Please try again.');
+              }
             }}
           />
         </Space>
@@ -213,31 +352,36 @@ export default function HomePage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: '15%',
-      render: (status: string) => {
-        let color = 'default';
-        let text = status;
+      width: 250,
+      render: (status: string, record: Video) => {
+        const statusMap: Record<string, { color: string; text: string }> = {
+          PENDING: { color: 'blue', text: 'Pending' },
+          DOWNLOADING: { color: 'orange', text: 'Downloading' },
+          DOWNLOADED: { color: 'green', text: 'Downloaded' },
+          FAILED: { color: 'red', text: 'Failed' },
+        };
+        const statusInfo = statusMap[status] || { color: 'default', text: status };
         
-        switch (status) {
-          case 'DOWNLOADING':
-            color = 'processing';
-            text = 'Downloading';
-            break;
-          case 'DOWNLOADED':
-            color = 'success';
-            text = 'Ready';
-            break;
-          case 'FAILED':
-            color = 'error';
-            text = 'Error';
-            break;
-          case 'PENDING':
-            color = 'warning';
-            text = 'Pending';
-            break;
+        if (status === 'DOWNLOADING' && record.download_info) {
+          const { progress, speed, eta } = record.download_info;
+          return (
+            <div>
+              <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
+              <div style={{ marginTop: 4 }}>
+                <Progress 
+                  percent={Math.round((progress || 0) * 100)} 
+                  size="small" 
+                  showInfo={false}
+                />
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  {Math.round((progress || 0) * 100)}% • {speed} • ETA: {eta}
+                </div>
+              </div>
+            </div>
+          );
         }
         
-        return <Tag color={color}>{text}</Tag>;
+        return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
       },
     },
     {
@@ -254,13 +398,32 @@ export default function HomePage() {
               disabled={record.status !== 'DOWNLOADED'}
             />
           </Tooltip>
-          <Tooltip title="Copy URL">
+          <Tooltip title="Copy Stream URL">
             <Button
               icon={<CopyOutlined />}
-              onClick={() => {
-                navigator.clipboard.writeText(record.url);
-                message.success('URL copied to clipboard');
+              onClick={async () => {
+                const streamUrl = new URL(`/api/videos/${record.id}/stream`, BACKEND_URL).toString();
+                try {
+                  if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(streamUrl);
+                  } else {
+                    // Fallback for browsers that don't support clipboard API
+                    const textArea = document.createElement('textarea');
+                    textArea.value = streamUrl;
+                    textArea.style.position = 'fixed';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                  }
+                  message.success('Stream URL copied to clipboard');
+                } catch (err) {
+                  console.error('Failed to copy URL:', err);
+                  message.error('Failed to copy URL to clipboard');
+                }
               }}
+              title="Copy Stream URL"
             />
           </Tooltip>
           <Tooltip title="Delete">
