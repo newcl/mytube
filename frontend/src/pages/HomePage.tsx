@@ -27,20 +27,22 @@ import { BACKEND_URL } from '../config';
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
 
+interface DownloadInfo {
+  progress: number;
+  speed: string;
+  eta: string;
+  total_bytes: number;
+  downloaded_bytes: number;
+}
+
 interface Video {
   id: string;
   url: string;
-  title?: string;
+  title: string;
   status: 'PENDING' | 'DOWNLOADING' | 'DOWNLOADED' | 'FAILED';
   error_message?: string;
-  thumbnail_url?: string;
-  download_info?: {
-    progress: number;
-    speed: string;
-    eta: string;
-    total_bytes: number;
-    downloaded_bytes: number;
-  };
+  thumbnail_url: string;
+  download_info: DownloadInfo;
 }
 
 export default function HomePage() {
@@ -50,7 +52,6 @@ export default function HomePage() {
   const [videosLoading, setVideosLoading] = useState(true);
   const screens = useBreakpoint();
   const isMobile = !screens.md;
-  const hasFetched = useRef(false);
   // EventSource is managed by useEffect, no need to store in state
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -73,33 +74,67 @@ export default function HomePage() {
       const handleMessage = (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
+          console.log(`SSE message for video ${videoId}:`, data);
+          
           if (data.event === 'progress') {
             const progressData = JSON.parse(data.data);
-            setVideos(prev => prev.map(v => 
-              v.id === videoId ? {
+            setVideos(prev => prev.map(v => {
+              if (v.id !== videoId) return v;
+              
+              const currentDownloadInfo = v.download_info || {
+                progress: 0,
+                speed: '',
+                eta: '',
+                total_bytes: 0,
+                downloaded_bytes: 0
+              };
+              
+              const updatedVideo: Video = {
                 ...v,
-                status: progressData.status || v.status,
+                status: (progressData.status?.toUpperCase() || v.status) as Video['status'],
                 download_info: {
-                  ...(v.download_info || {}),
-                  progress: progressData.progress,
-                  speed: progressData.speed || (v.download_info?.speed || ''),
-                  eta: progressData.eta || (v.download_info?.eta || ''),
-                  total_bytes: progressData.total_bytes || (v.download_info?.total_bytes || 0),
-                  downloaded_bytes: progressData.downloaded_bytes || (v.download_info?.downloaded_bytes || 0)
+                  progress: progressData.progress ?? currentDownloadInfo.progress,
+                  speed: progressData.speed ?? currentDownloadInfo.speed,
+                  eta: progressData.eta ?? currentDownloadInfo.eta,
+                  total_bytes: progressData.total_bytes ?? currentDownloadInfo.total_bytes,
+                  downloaded_bytes: progressData.downloaded_bytes ?? currentDownloadInfo.downloaded_bytes
                 }
-              } : v
-            ));
+              };
+              
+              return updatedVideo;
+            }));
           } else if (data.event === 'end') {
             const endData = JSON.parse(data.data);
-            setVideos(prev => prev.map(v => 
-              v.id === videoId ? {
+            console.log(`Download ${endData.status} for video ${videoId}`, endData);
+            
+            setVideos(prev => prev.map(v => {
+              if (v.id !== videoId) return v;
+              
+              const currentDownloadInfo = v.download_info || {
+                progress: 0,
+                speed: '',
+                eta: '',
+                total_bytes: 0,
+                downloaded_bytes: 0
+              };
+              
+              const updatedVideo: Video = {
                 ...v,
-                status: endData.status,
-                error_message: endData.message || undefined
-              } : v
-            ));
-            // Close the connection when download is complete
-            cleanupEventSource(videoId);
+                status: (endData.status?.toUpperCase() || v.status) as Video['status'],
+                error_message: endData.message || undefined,
+                download_info: {
+                  ...currentDownloadInfo,
+                  progress: endData.status === 'downloaded' ? 100 : 0
+                }
+              };
+              
+              return updatedVideo;
+            }));
+            
+            // Don't close the connection immediately, let the server handle it
+            // The connection will be closed when the component unmounts or when the video is removed
+          } else if (data.event === 'error') {
+            console.error(`Error for video ${videoId}:`, data.data);
           }
         } catch (err) {
           console.error(`Error processing SSE message for video ${videoId}:`, err);
@@ -143,7 +178,16 @@ export default function HomePage() {
     // Create SSE connections for downloading/pending videos
     videos.forEach(video => {
       if ((video.status === 'DOWNLOADING' || video.status === 'PENDING') && !eventSources[video.id]) {
+        console.log(`Setting up SSE for video ${video.id} (${video.status})`);
         setupEventSource(video.id);
+      }
+    });
+    
+    // Clean up SSE connections for videos that are no longer in the list
+    Object.keys(eventSources).forEach(videoId => {
+      if (!videos.some(v => v.id === videoId)) {
+        console.log(`Cleaning up SSE for removed video ${videoId}`);
+        cleanupEventSource(videoId);
       }
     });
 
@@ -153,39 +197,70 @@ export default function HomePage() {
     };
   }, [videos]); // Re-run when videos array changes
 
-  // Fetch videos on component mount
+  // Fetch videos on component mount and set up polling
   useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
+    let isMounted = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY = 3000; // 3 seconds
+    let pollingTimeout: NodeJS.Timeout;
     
-    console.log('HomePage mounted, fetching videos...');
+    console.log('HomePage mounted, setting up video polling...');
     
     const fetchVideos = async () => {
-      const url = new URL('/api/videos', BACKEND_URL).toString();
-      console.log('Fetching videos from:', url);
-      const startTime = Date.now();
+      if (!isMounted) return;
       
       try {
+        setVideosLoading(true);
+        const url = new URL('/api/videos', BACKEND_URL).toString();
+        console.log('Fetching videos from:', url);
+        const startTime = Date.now();
+        
         const response = await fetch(url);
         console.log(`Request completed in ${Date.now() - startTime}ms with status:`, response.status);
         
-        if (!response.ok) throw new Error('Failed to fetch videos');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
         const data = await response.json();
-        console.log('Received videos data:', { count: data.length });
-        setVideos(data);
+        console.log(`Received ${data.length} videos`);
+        
+        if (isMounted) {
+          setVideos(data);
+          retryCount = 0; // Reset retry count on success
+        }
       } catch (error) {
         console.error('Error fetching videos:', error);
-        message.error('Failed to load videos');
+        
+        if (retryCount < MAX_RETRIES) {
+          retryCount++;
+          console.log(`Retrying fetch (${retryCount}/${MAX_RETRIES}) in ${RETRY_DELAY}ms`);
+          pollingTimeout = setTimeout(fetchVideos, RETRY_DELAY);
+          return;
+        } else if (isMounted) {
+          message.error('Failed to load videos after several attempts');
+        }
       } finally {
-        setVideosLoading(false);
+        if (isMounted) {
+          setVideosLoading(false);
+        }
+      }
+      
+      // Schedule next fetch if still mounted
+      if (isMounted) {
+        pollingTimeout = setTimeout(fetchVideos, 10000); // Poll every 10 seconds
       }
     };
 
+    // Initial fetch
     fetchVideos();
     
+    // Cleanup function
     return () => {
-      console.log('HomePage unmounting...');
+      console.log('HomePage unmounting, cleaning up...');
+      isMounted = false;
+      if (pollingTimeout) {
+        clearTimeout(pollingTimeout);
+      }
     };
   }, []);
 
