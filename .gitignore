@@ -30,6 +30,9 @@ venv.bak/
 *.log
 huey.pid
 
+# Backend process IDs
+backend/pids/
+
 # Node
 node_modules/
 npm-debug.log*

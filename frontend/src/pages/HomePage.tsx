@@ -70,7 +70,8 @@ export default function HomePage() {
 
   const handlePlay = (video: Video) => {
     if (video.status === 'DOWNLOADED') {
-      window.open(`/player/${video.id}`, '_blank');
+      const streamUrl = new URL(`/api/videos/${video.id}/stream`, BACKEND_URL).toString();
+      window.open(streamUrl, '_blank');
     }
   };
 
@@ -275,7 +276,7 @@ export default function HomePage() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${BACKEND_URL}/api/videos`, {
+      const response = await fetch(`${BACKEND_URL}/videos`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
