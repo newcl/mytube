@@ -47,71 +47,86 @@ def download_video_task(video_id: int):
         
         def progress_hook(d):
             nonlocal last_update_time
-            logger.info(f"Progress hook called with data: {d}")
             
-            if d['status'] == 'downloading':
+            status = d.get('status')
+            
+            # Handle different statuses
+            if status == 'downloading':
                 current_time = time.time()
-                if current_time - last_update_time < update_interval:
+                if current_time - last_update_time < 0.5:  # Limit to 2 updates per second
                     return
-                
+                    
                 last_update_time = current_time
+                
                 try:
-                    # Log all available keys in the progress dictionary
-                    logger.info(f"Available keys in progress data: {list(d.keys())}")
+                    video = db.query(Video).filter(Video.id == video_id).first()
+                    if not video:
+                        return
                     
-                    # Extract progress information
-                    percent_str = d.get('_percent_str', '0%').strip()
-                    logger.info(f"Percent string: {percent_str}")
+                    # Extract key progress info
+                    speed = d.get('_speed_str', '0.0KiB/s')
+                    eta = d.get('_eta_str', '0:00')
+                    downloaded = d.get('downloaded_bytes', 0)
+                    total = d.get('total_bytes', 0)
                     
-                    try:
-                        progress = float(percent_str.replace('%', ''))
-                        logger.info(f"Parsed progress: {progress}")
-                        
-                        # Format speed and ETA
-                        speed = d.get('speed', 0)
-                        logger.info(f"Raw speed value: {speed}")
-                        speed_str = ''
-                        if speed and speed > 0:
-                            speed_str = f"{speed/1024/1024:.1f} MB/s"
-                        
-                        eta = d.get('eta', None)
-                        logger.info(f"Raw ETA value: {eta}")
-                        eta_str = ''
-                        if eta is not None and eta > 0:
-                            minutes = eta // 60
-                            seconds = eta % 60
-                            eta_str = f"{minutes}m {seconds}s"
-                        
-                        download_info = {
-                            'progress': progress,
-                            'speed': speed_str,
-                            'eta': eta_str,
-                            'total_bytes': d.get('total_bytes', 0),
-                            'downloaded_bytes': d.get('downloaded_bytes', 0),
-                            'elapsed': d.get('elapsed', 0),
-                        }
-                        logger.info(f"Final download info: {download_info}")
-                        video.download_info = download_info
-                        db.commit()
-                    except ValueError as e:
-                        logger.error(f"Could not parse progress string '{percent_str}': {e}")
+                    # Update video with raw progress info
+                    video.download_info = {
+                        'filename': os.path.basename(d.get('filename', '')),
+                        'speed': speed,
+                        'eta': eta,
+                        'downloaded': f"{downloaded / 1024 / 1024:.1f}MB" if downloaded > 0 else '0.0MB',
+                        'total': f"{total / 1024 / 1024:.1f}MB" if total > 0 else '?',
+                        'elapsed': d.get('elapsed', 0)
+                    }
+                    
+                    db.commit()
+                    db.refresh(video)
+                    
                 except Exception as e:
-                    logger.error(f"Error updating progress for video {video_id}: {e}")
-            elif d['status'] == 'finished':
+                    logger.error(f"Error updating progress: {e}")
+                
+            elif status == 'finished':
                 logger.info("Download finished, updating final status")
                 try:
+                    video = db.query(Video).filter(Video.id == video_id).first()
+                    if not video:
+                        return
+                        
                     video.download_info = {
-                        'progress': 100.0,
+                        'filename': os.path.basename(d.get('filename', '')),
                         'speed': '',
                         'eta': '',
-                        'total_bytes': d.get('total_bytes', 0),
-                        'downloaded_bytes': d.get('total_bytes', 0),
-                        'elapsed': d.get('elapsed', 0),
+                        'downloaded': f"{d.get('total_bytes', 0) / 1024 / 1024:.1f}MB" if d.get('total_bytes') else '?',
+                        'total': f"{d.get('total_bytes', 0) / 1024 / 1024:.1f}MB" if d.get('total_bytes') else '?',
+                        'elapsed': d.get('elapsed', 0)
                     }
+                    video.status = VideoStatus.DOWNLOADED
                     db.commit()
+                    logger.info(f"Successfully marked video {video_id} as downloaded")
                 except Exception as e:
                     logger.error(f"Error updating final progress for video {video_id}: {e}")
 
+        # First, get video metadata
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            try:
+                info = ydl.extract_info(video.url, download=False)
+                video.title = info.get('title', 'Untitled')
+                
+                # Get the best thumbnail available
+                thumbnails = info.get('thumbnails', [])
+                if thumbnails:
+                    # Try to get the highest resolution thumbnail
+                    thumbnail = max(thumbnails, key=lambda x: x.get('width', 0) * x.get('height', 0))
+                    video.thumbnail_url = thumbnail.get('url', '')
+                
+                db.commit()
+                db.refresh(video)
+                logger.info(f"Fetched metadata for video {video_id}: {video.title}")
+                
+            except Exception as e:
+                logger.error(f"Error fetching video metadata: {e}")
+        
+        # Start the download with progress hooks
         ydl_opts = {
             'format': 'best',
             'outtmpl': os.path.join('downloads', f'{video_id}.%(ext)s'),
@@ -119,17 +134,6 @@ def download_video_task(video_id: int):
             'progress_with_newline': True,
             'noprogress': False,
             'quiet': False,
-            'no_warnings': False,
-            'verbose': True,
-            'progress': True,
-            'newline': True,
-            'updatetime': True,
-            'writedescription': True,
-            'writeinfojson': True,
-            'writesubtitles': True,
-            'writeautomaticsub': True,
-            'subtitleslangs': ['en'],
-            'writethumbnail': True,
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4',

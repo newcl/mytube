@@ -1,19 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 // No need for useNavigate here since we're using window.location for navigation
-import { 
-  Card, 
-  Typography, 
-  Input, 
-  Button, 
-  message, 
-  Space, 
-  Table, 
-  Tag, 
-  Image,
-  Tooltip,
-  Grid,
-  Progress,
-} from 'antd';
+import { Card, Typography, Input, Button, message, Space, Table, Tag, Image, Tooltip, Grid } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { 
   PlayCircleOutlined, 
@@ -28,11 +15,12 @@ const { Title } = Typography;
 const { useBreakpoint } = Grid;
 
 interface DownloadInfo {
-  progress: number;
+  filename?: string;
   speed: string;
   eta: string;
-  total_bytes: number;
-  downloaded_bytes: number;
+  downloaded: string;
+  total: string;
+  elapsed?: number;
 }
 
 interface Video {
@@ -52,9 +40,9 @@ export default function HomePage() {
   const [videosLoading, setVideosLoading] = useState(true);
   const screens = useBreakpoint();
   const isMobile = !screens.md;
-  // EventSource is managed by useEffect, no need to store in state
+  // EventSource is managed by useEffect
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const eventSourceRef = useRef<EventSource | null>(null);
-
 
   // Setup SSE connections for each downloading video
   useEffect(() => {
@@ -78,30 +66,35 @@ export default function HomePage() {
           
           if (data.event === 'progress') {
             const progressData = JSON.parse(data.data);
+            
             setVideos(prev => prev.map(v => {
               if (v.id !== videoId) return v;
               
-              const currentDownloadInfo = v.download_info || {
-                progress: 0,
-                speed: '',
-                eta: '',
-                total_bytes: 0,
-                downloaded_bytes: 0
-              };
+              // Calculate the new progress with smoothing
+              const currentProgress = v.download_info?.progress || 0;
+              const newProgress = progressData.progress;
               
-              const updatedVideo: Video = {
+              // Only update if there's a significant change (0.5% or more)
+              if (Math.abs(newProgress - currentProgress) < 0.005) {
+                return v;
+              }
+              
+              // Keep the existing download info but update with new values
+              return {
                 ...v,
-                status: (progressData.status?.toUpperCase() || v.status) as Video['status'],
+                status: progressData.status.toUpperCase(),
                 download_info: {
-                  progress: progressData.progress ?? currentDownloadInfo.progress,
-                  speed: progressData.speed ?? currentDownloadInfo.speed,
-                  eta: progressData.eta ?? currentDownloadInfo.eta,
-                  total_bytes: progressData.total_bytes ?? currentDownloadInfo.total_bytes,
-                  downloaded_bytes: progressData.downloaded_bytes ?? currentDownloadInfo.downloaded_bytes
+                  ...v.download_info,
+                  progress: newProgress,
+                  speed: progressData.speed || v.download_info?.speed || '',
+                  eta: progressData.eta || v.download_info?.eta || '',
+                  total_bytes: progressData.total_bytes || v.download_info?.total_bytes || 0,
+                  downloaded_bytes: progressData.downloaded_bytes || v.download_info?.downloaded_bytes || 0,
+                  segment_progress: progressData.segment_progress,
+                  total_segments: progressData.total_segments,
+                  current_segment: progressData.current_segment,
                 }
               };
-              
-              return updatedVideo;
             }));
           } else if (data.event === 'end') {
             const endData = JSON.parse(data.data);
@@ -115,7 +108,7 @@ export default function HomePage() {
                 speed: '',
                 eta: '',
                 total_bytes: 0,
-                downloaded_bytes: 0
+                downloaded_bytes: 0,
               };
               
               const updatedVideo: Video = {
@@ -124,7 +117,7 @@ export default function HomePage() {
                 error_message: endData.message || undefined,
                 download_info: {
                   ...currentDownloadInfo,
-                  progress: endData.status === 'downloaded' ? 100 : 0
+                  progress: endData.status === 'downloaded' ? 100 : 0,
                 }
               };
               
@@ -427,36 +420,44 @@ export default function HomePage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 250,
+      width: 200,
       render: (status: string, record: Video) => {
-        const statusMap: Record<string, { color: string; text: string }> = {
-          PENDING: { color: 'blue', text: 'Pending' },
-          DOWNLOADING: { color: 'orange', text: 'Downloading' },
-          DOWNLOADED: { color: 'green', text: 'Downloaded' },
-          FAILED: { color: 'red', text: 'Failed' },
-        };
-        const statusInfo = statusMap[status] || { color: 'default', text: status };
+        const statusMap = {
+          PENDING: { color: 'blue', text: 'PENDING' },
+          DOWNLOADING: { color: 'orange', text: 'DOWNLOADING' },
+          DOWNLOADED: { color: 'green', text: 'DOWNLOADED' },
+          FAILED: { color: 'red', text: 'FAILED' },
+        } as const;
         
-        if (status === 'DOWNLOADING' && record.download_info) {
-          const { progress, speed, eta } = record.download_info;
-          return (
-            <div>
-              <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
-              <div style={{ marginTop: 4 }}>
-                <Progress 
-                  percent={Math.round((progress || 0) * 100)} 
-                  size="small" 
-                  showInfo={false}
-                />
-                <div style={{ fontSize: 12, color: '#666' }}>
-                  {Math.round((progress || 0) * 100)}% • {speed} • ETA: {eta}
-                </div>
-              </div>
-            </div>
-          );
+        const statusInfo = statusMap[status as keyof typeof statusMap] || { color: 'default', text: status };
+        
+        // For non-downloading states, just show a simple tag
+        if (status !== 'DOWNLOADING' || !record.download_info) {
+          return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
         }
         
-        return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
+        const { filename, speed, eta, downloaded, total } = record.download_info;
+        const displayName = filename ? 
+          (filename.length > 15 ? `${filename.substring(0, 15)}...` : filename) : 
+          'Processing...';
+        
+        return (
+          <Tooltip 
+            placement="topLeft"
+            title={
+              <div style={{ fontSize: '12px', lineHeight: '1.5' }}>
+                <div><strong>File:</strong> {filename || 'Processing...'}</div>
+                <div><strong>Downloaded:</strong> {downloaded || '0.0MB'} / {total || '?'}</div>
+                <div><strong>Speed:</strong> {speed || '0.0KiB/s'}</div>
+                <div><strong>ETA:</strong> {eta || '0:00'}</div>
+              </div>
+            }
+          >
+            <Tag color="orange">
+              {displayName} • {speed} • {eta}
+            </Tag>
+          </Tooltip>
+        );
       },
     },
     {
