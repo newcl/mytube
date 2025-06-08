@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button, message, Space, Table, Tag, Image, Tooltip, Grid, Typography, Card, Input } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { useLocation } from 'react-router-dom';
 import { 
   PlayCircleOutlined, 
   DeleteOutlined, 
@@ -43,28 +44,87 @@ export default function HomePage() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const { Title } = Typography;
+  const location = useLocation();
+  const urlRef = useRef<string>('');
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
-      await navigator.clipboard.writeText(text);
-      message.success('Copied to clipboard');
-      return true;
+      // Try the modern clipboard API first
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        message.success('Copied to clipboard');
+        return true;
+      }
+      
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        textArea.remove();
+        if (successful) {
+          message.success('Copied to clipboard');
+          return true;
+        } else {
+          message.error('Failed to copy to clipboard');
+          return false;
+        }
+      } catch (err) {
+        textArea.remove();
+        throw err;
+      }
     } catch (err) {
       console.error('Failed to copy text: ', err);
-      message.error('Failed to copy to clipboard');
+      message.error('Failed to copy to clipboard. Please try copying manually.');
       return false;
     }
   };
 
   const handleClipboardPaste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setUrl(text);
+      // Try the modern clipboard API first
+      if (navigator.clipboard && window.isSecureContext) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          setUrl(text);
+          return;
+        }
       }
+      
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      
+      try {
+        const successful = document.execCommand('paste');
+        if (successful) {
+          const text = textArea.value;
+          textArea.remove();
+          if (text) {
+            setUrl(text);
+            return;
+          }
+        }
+      } catch (err) {
+        textArea.remove();
+        throw err;
+      }
+      
+      message.error('Failed to read from clipboard. Please paste manually.');
     } catch (err) {
       console.error('Failed to read clipboard contents: ', err);
-      message.error('Failed to read from clipboard');
+      message.error('Failed to read from clipboard. Please paste manually.');
     }
   };
 
@@ -269,59 +329,37 @@ export default function HomePage() {
     };
   }, []);
 
-  const extractYouTubeUrl = (inputUrl: string): string => {
-    try {
-      // If the URL contains another URL after the domain, extract it
-      const urlParts = inputUrl.split('/');
-      
-      // Find the index where the YouTube URL starts
-      const youtubeUrlIndex = urlParts.findIndex(part => 
-        part.includes('youtube.com') || 
-        part.includes('youtu.be') ||
-        part.includes('watch?v=')
-      );
-      
-      if (youtubeUrlIndex !== -1) {
-        // Reconstruct the YouTube URL
-        const extractedUrl = urlParts.slice(youtubeUrlIndex).join('/');
-        
-        // If it's just a video ID, construct a proper YouTube URL
-        if (extractedUrl.startsWith('watch?v=')) {
-          return `https://www.youtube.com/${extractedUrl}`;
-        }
-        
-        // Ensure the URL starts with http:// or https://
-        if (!extractedUrl.startsWith('http')) {
-          return `https://${extractedUrl}`;
-        }
-        return extractedUrl;
-      }
-      
-      // If no YouTube URL found, try to find a URL pattern
-      const urlPattern = /(https?:\/\/[^\s]+)/;
-      const match = inputUrl.match(urlPattern);
-      if (match) {
-        return match[1];
-      }
-      
-      return inputUrl;
-    } catch (error) {
-      console.error('Error extracting YouTube URL:', error);
-      return inputUrl;
+  useEffect(() => {
+    // Get the full URL including query parameters
+    const fullUrl = window.location.href;
+    console.log('Full URL:', fullUrl);
+    
+    // Extract the URL after the domain
+    const urlObj = new URL(fullUrl);
+    const path = urlObj.pathname + urlObj.search + urlObj.hash;
+    console.log('Path:', path);
+    
+    // If there's anything after the domain, treat it as a YouTube URL
+    if (path !== '/') {
+      console.log('Found URL in path');
+      const youtubeUrl = path.slice(1); // Remove the leading slash
+      console.log('YouTube URL:', youtubeUrl);
+      urlRef.current = youtubeUrl;
+      handleSubmit(); // Call handleSubmit directly with the ref value
     }
-  };
+  }, []); // Empty dependency array since we only want to run this once on mount
 
   const handleSubmit = async () => {
-    if (!url) {
+    const currentUrl = urlRef.current || url;
+    console.log('handleSubmit called with URL:', currentUrl);
+    if (!currentUrl) {
       message.error('Please enter a YouTube URL');
       return;
     }
 
     try {
       setIsSubmitting(true);
-      console.log('Original URL:', url);
-      const youtubeUrl = extractYouTubeUrl(url);
-      console.log('Extracted YouTube URL:', youtubeUrl);
+      console.log('Original URL:', currentUrl);
       
       const apiUrl = new URL('/api/videos', BACKEND_URL).toString();
       console.log('API URL:', apiUrl);
@@ -331,7 +369,7 @@ export default function HomePage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: youtubeUrl }),
+        body: JSON.stringify({ url: currentUrl }),
       });
 
       if (!response.ok) {
@@ -343,7 +381,9 @@ export default function HomePage() {
       setVideos(prevVideos => [newVideo, ...prevVideos]);
       setUrl('');
       message.success('Download started');
-      window.location.href = '/';  // Redirect to home page
+      
+      // Redirect to home page after successful API call
+      window.location.href = '/';
     } catch (error) {
       console.error('Error:', error);
       message.error(error instanceof Error ? error.message : 'Failed to start download');

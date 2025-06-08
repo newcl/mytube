@@ -1,17 +1,14 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import HomePage from './pages/HomePage';
-import VideoPage from './pages/VideoPage';
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/videos/:id" element={<VideoPage />} />
-        <Route path="/https://www.youtube.com/watch?v=:id" element={<HomePage />} />
-        <Route path="/https://youtu.be/:id" element={<HomePage />} />
+        <Route path="/*" element={<HomePage />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
 
