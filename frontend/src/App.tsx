@@ -8,6 +8,8 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/videos/:id" element={<VideoPage />} />
+        <Route path="/https://www.youtube.com/watch?v=:id" element={<HomePage />} />
+        <Route path="/https://youtu.be/:id" element={<HomePage />} />
       </Routes>
     </BrowserRouter>
   );

@@ -1,41 +1,32 @@
-export const extractYouTubeUrl = (inputUrl: string): string => {
+/**
+ * Extracts the YouTube video ID from a YouTube URL.
+ * Supports both standard YouTube URLs and shortened youtu.be URLs.
+ * 
+ * @param url - The YouTube URL to extract the video ID from
+ * @returns The video ID if found, null otherwise
+ */
+export function extractYouTubeUrl(url: string | null | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+
   try {
-    // If the URL contains another URL after the domain, extract it
-    const urlParts = inputUrl.split('/');
-    
-    // Find the index where the YouTube URL starts
-    const youtubeUrlIndex = urlParts.findIndex(part => 
-      part.includes('youtube.com') || 
-      part.includes('youtu.be') ||
-      part.includes('watch?v=')
-    );
-    
-    if (youtubeUrlIndex !== -1) {
-      // Reconstruct the YouTube URL
-      const extractedUrl = urlParts.slice(youtubeUrlIndex).join('/');
-      
-      // If it's just a video ID, construct a proper YouTube URL
-      if (extractedUrl.startsWith('watch?v=')) {
-        return `https://www.youtube.com/${extractedUrl}`;
-      }
-      
-      // Ensure the URL starts with http:// or https://
-      if (!extractedUrl.startsWith('http')) {
-        return `https://${extractedUrl}`;
-      }
-      return extractedUrl;
+    // Handle youtu.be URLs
+    if (url.includes('youtu.be/')) {
+      const videoId = url.split('youtu.be/')[1].split('?')[0];
+      return videoId;
     }
-    
-    // If no YouTube URL found, try to find a URL pattern
-    const urlPattern = /(https?:\/\/[^\s]+)/;
-    const match = inputUrl.match(urlPattern);
-    if (match) {
-      return match[1];
+
+    // Handle standard YouTube URLs
+    const urlObj = new URL(url);
+    if (urlObj.hostname.includes('youtube.com')) {
+      const videoId = urlObj.searchParams.get('v');
+      return videoId;
     }
-    
-    return inputUrl;
+
+    return null;
   } catch (error) {
     console.error('Error extracting YouTube URL:', error);
-    return inputUrl;
+    return null;
   }
-}; 
+} 
