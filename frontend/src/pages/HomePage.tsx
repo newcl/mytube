@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button, message, Space, Table, Tag, Image, Tooltip, Grid, Typography, Card, Input } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useLocation } from 'react-router-dom';
 import { 
   PlayCircleOutlined, 
   DeleteOutlined, 
@@ -44,7 +43,6 @@ export default function HomePage() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const { Title } = Typography;
-  const location = useLocation();
   const urlRef = useRef<string>('');
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
