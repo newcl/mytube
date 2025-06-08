@@ -269,32 +269,6 @@ export default function HomePage() {
     };
   }, []);
 
-  const testUrlExtraction = () => {
-    const testCases = [
-      'http://lhmswww.com/https://www.youtube.com/watch?v=dJgIV5spSA0&t=646s',
-      'http://lhmswww.com/youtube.com/watch?v=dJgIV5spSA0',
-      'http://lhmswww.com/watch?v=dJgIV5spSA0',
-      'http://lhmswww.com/https://youtu.be/dJgIV5spSA0',
-      'http://lhmswww.com/youtu.be/dJgIV5spSA0'
-    ];
-
-    console.log('=== Testing URL extraction with lhmswww.com prefix ===');
-    testCases.forEach(testUrl => {
-      const extracted = extractYouTubeUrl(testUrl);
-      console.log(`Input: ${testUrl}`);
-      console.log(`Extracted: ${extracted}`);
-      console.log('---');
-    });
-    console.log('=== Test complete ===');
-  };
-
-  // Run test immediately
-  testUrlExtraction();
-
-  useEffect(() => {
-    testUrlExtraction();
-  }, []);
-
   const extractYouTubeUrl = (inputUrl: string): string => {
     try {
       // If the URL contains another URL after the domain, extract it
