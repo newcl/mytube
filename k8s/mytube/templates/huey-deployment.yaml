@@ -1,0 +1,37 @@
+{{- if .Values.huey.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-huey
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Release.Name }}-huey
+spec:
+  replicas: {{ .Values.huey.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-huey
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-huey
+    spec:
+      containers:
+        - name: huey
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.huey.image.repository }}:{{ .Values.huey.image.tag }}"
+          imagePullPolicy: {{ .Values.huey.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-backend-config
+            - secretRef:
+                name: {{ .Release.Name }}-backend-secrets
+          volumeMounts:
+            - name: downloads
+              mountPath: /app/downloads
+          resources:
+            {{- toYaml .Values.huey.resources | nindent 12 }}
+      volumes:
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-downloads
+{{- end }} 

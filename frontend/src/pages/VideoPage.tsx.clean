@@ -156,6 +156,7 @@ export default function VideoPage() {
   };
 
   const handlePlay = () => {
+    if (!id) return;
     const url = new URL(`/api/videos/${id}/stream`, BACKEND_URL).toString();
     window.open(url, '_blank');
   };
@@ -191,7 +192,7 @@ export default function VideoPage() {
       <div className="max-w-4xl mx-auto">
         <Card>
           <div className="mb-4">
-            <Title level={2}>{video.title || 'Loading...'}</Title>
+            <Title level={2}>{video.title || 'No title available'}</Title>
             <Text type="secondary" className="block mb-4">
               {video.url}
             </Text>
@@ -201,39 +202,35 @@ export default function VideoPage() {
             <div className="mb-4">
               <Image
                 src={video.thumbnail_url}
-                alt="Video thumbnail"
-                width="100%"
-                height="auto"
+                alt="thumbnail"
+                style={{ width: '100%', maxHeight: '400px', objectFit: 'contain' }}
+                preview={false}
               />
             </div>
           ) : (
-            <div className="mb-4">
-              <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center">
-                <PictureOutlined className="text-gray-400 text-4xl" />
-              </div>
+            <div className="mb-4 h-64 flex items-center justify-center bg-gray-100">
+              <PictureOutlined style={{ fontSize: 48, color: '#999' }} />
             </div>
           )}
 
           {video.download_info && (
-            <>
-              <div className="mb-4">
-                <Progress
-                  percent={progress || video.download_info?.progress || 0}
-                  status={video.status === 'FAILED' ? 'exception' : video.status === 'DOWNLOADING' ? 'active' : 'normal'}
-                  format={(percent) => `${percent}%`}
-                />
-                {(video.status === 'DOWNLOADING' || video.status === 'FAILED') && (
-                  <div className="text-sm text-gray-500">
-                    <div>Speed: {video.download_info.speed}</div>
-                    <div>ETA: {video.download_info.eta}</div>
-                    <div>
-                      Downloaded: {Math.round(video.download_info.downloaded_bytes / 1024 / 1024)}MB / 
-                      {Math.round(video.download_info.total_bytes / 1024 / 1024)}MB
-                    </div>
+            <div className="mb-4">
+              <Progress
+                percent={progress || video.download_info?.progress || 0}
+                status={video.status === 'FAILED' ? 'exception' : video.status === 'DOWNLOADING' ? 'active' : 'normal'}
+                format={(percent) => `${percent}%`}
+              />
+              {(video.status === 'DOWNLOADING' || video.status === 'FAILED') && (
+                <div className="text-sm text-gray-500 mt-2">
+                  <div>Speed: {video.download_info.speed}</div>
+                  <div>ETA: {video.download_info.eta}</div>
+                  <div>
+                    Downloaded: {Math.round(video.download_info.downloaded_bytes / 1024 / 1024)}MB / 
+                    {Math.round(video.download_info.total_bytes / 1024 / 1024)}MB
                   </div>
-                )}
-              </div>
-            </>
+                </div>
+              )}
+            </div>
           )}
 
           {video.status === 'FAILED' && (

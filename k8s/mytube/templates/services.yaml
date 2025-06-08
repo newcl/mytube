@@ -1,0 +1,37 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: frontend
+{{- end }}
+
+{{- if .Values.fastapi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: fastapi
+spec:
+  type: {{ .Values.fastapi.service.type }}
+  ports:
+    - port: {{ .Values.fastapi.service.port }}
+      targetPort: {{ .Values.fastapi.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: fastapi
+{{- end }} 

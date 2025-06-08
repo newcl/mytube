@@ -1,0 +1,144 @@
+# Global values
+global:
+  imagePullSecrets: []
+  storageClass: "longhorn"
+  namespace: "mytube"
+  imageRegistry: "localhost:5000"
+
+# Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: mytube-frontend
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  probes:
+    readiness:
+      path: /
+      port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    liveness:
+      path: /
+      port: 80
+      initialDelaySeconds: 15
+      periodSeconds: 20
+
+# FastAPI configuration
+fastapi:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: mytube-backend-fastapi
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  probes:
+    readiness:
+      path: /api/health
+      port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 30
+    liveness:
+      path: /api/health
+      port: 8000
+      initialDelaySeconds: 15
+      periodSeconds: 60
+
+# Huey configuration
+huey:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: mytube-backend-huey
+    tag: latest
+    pullPolicy: Always
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7.2-alpine
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Backend configuration
+backend:
+  config:
+    postgresHost: "192.168.1.50"
+    databaseUrl: "postgresql://mytube:123456@192.168.1.50:5432/mytube"
+    redisUrl: "redis://{{ .Release.Name }}-redis:6379/0"
+    host: "0.0.0.0"
+    port: "8000"
+    workers: "4"
+    logLevel: "info"
+    hueyWorkers: "4"
+    hueyVerbose: "1"
+    hueyLogLevel: "INFO"
+  postgres:
+    host: "192.168.1.50"
+    port: "5432"
+    database: "mytube"
+    user: "mytube"
+    password: "123456"
+
+# Persistent Volume configuration
+persistence:
+  enabled: true
+  storageClass: "longhorn"
+  size: 10Gi
+  accessMode: ReadWriteMany
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+  host: "lhmswww.com"
+  paths:
+    - path: /
+      pathType: Prefix
+      service: frontend
+      port: 80
+    - path: /api
+      pathType: Prefix
+      service: fastapi
+      port: 80 

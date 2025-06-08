@@ -121,10 +121,6 @@ async def startup_event():
         logger.error(f"Startup failed: {e}")
         raise
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to MyTube API"}
-
 if __name__ == "__main__":
     print("Starting FastAPI server...111")
     import uvicorn

@@ -1,0 +1,53 @@
+{{- if .Values.fastapi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: fastapi
+spec:
+  replicas: {{ .Values.fastapi.replicaCount }}
+  selector:
+    matchLabels:
+      app: fastapi
+  template:
+    metadata:
+      labels:
+        app: fastapi
+    spec:
+      containers:
+        - name: fastapi
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.fastapi.image.repository }}:{{ .Values.fastapi.image.tag }}"
+          imagePullPolicy: {{ .Values.fastapi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-backend-config
+            - secretRef:
+                name: {{ .Release.Name }}-backend-secrets
+          volumeMounts:
+            - name: downloads
+              mountPath: /app/downloads
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.fastapi.probes.readiness.path }}
+              port: {{ .Values.fastapi.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.fastapi.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.fastapi.probes.readiness.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.fastapi.probes.liveness.path }}
+              port: {{ .Values.fastapi.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.fastapi.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.fastapi.probes.liveness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.fastapi.resources | nindent 12 }}
+      volumes:
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-downloads
+{{- end }} 

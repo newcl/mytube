@@ -77,7 +77,8 @@ export default function HomePage() {
 
   const handleDelete = async (videoId: string) => {
     try {
-      await fetch(`${BACKEND_URL}/api/videos/${videoId}`, {
+      const url = new URL(`/api/videos/${videoId}`, BACKEND_URL).toString();
+      await fetch(url, {
         method: 'DELETE',
       });
       setVideos(prevVideos => prevVideos.filter(v => v.id !== videoId));
@@ -268,6 +269,74 @@ export default function HomePage() {
     };
   }, []);
 
+  const testUrlExtraction = () => {
+    const testCases = [
+      'http://lhmswww.com/https://www.youtube.com/watch?v=dJgIV5spSA0&t=646s',
+      'http://lhmswww.com/youtube.com/watch?v=dJgIV5spSA0',
+      'http://lhmswww.com/watch?v=dJgIV5spSA0',
+      'http://lhmswww.com/https://youtu.be/dJgIV5spSA0',
+      'http://lhmswww.com/youtu.be/dJgIV5spSA0'
+    ];
+
+    console.log('=== Testing URL extraction with lhmswww.com prefix ===');
+    testCases.forEach(testUrl => {
+      const extracted = extractYouTubeUrl(testUrl);
+      console.log(`Input: ${testUrl}`);
+      console.log(`Extracted: ${extracted}`);
+      console.log('---');
+    });
+    console.log('=== Test complete ===');
+  };
+
+  // Run test immediately
+  testUrlExtraction();
+
+  useEffect(() => {
+    testUrlExtraction();
+  }, []);
+
+  const extractYouTubeUrl = (inputUrl: string): string => {
+    try {
+      // If the URL contains another URL after the domain, extract it
+      const urlParts = inputUrl.split('/');
+      
+      // Find the index where the YouTube URL starts
+      const youtubeUrlIndex = urlParts.findIndex(part => 
+        part.includes('youtube.com') || 
+        part.includes('youtu.be') ||
+        part.includes('watch?v=')
+      );
+      
+      if (youtubeUrlIndex !== -1) {
+        // Reconstruct the YouTube URL
+        const extractedUrl = urlParts.slice(youtubeUrlIndex).join('/');
+        
+        // If it's just a video ID, construct a proper YouTube URL
+        if (extractedUrl.startsWith('watch?v=')) {
+          return `https://www.youtube.com/${extractedUrl}`;
+        }
+        
+        // Ensure the URL starts with http:// or https://
+        if (!extractedUrl.startsWith('http')) {
+          return `https://${extractedUrl}`;
+        }
+        return extractedUrl;
+      }
+      
+      // If no YouTube URL found, try to find a URL pattern
+      const urlPattern = /(https?:\/\/[^\s]+)/;
+      const match = inputUrl.match(urlPattern);
+      if (match) {
+        return match[1];
+      }
+      
+      return inputUrl;
+    } catch (error) {
+      console.error('Error extracting YouTube URL:', error);
+      return inputUrl;
+    }
+  };
+
   const handleSubmit = async () => {
     if (!url) {
       message.error('Please enter a YouTube URL');
@@ -276,12 +345,19 @@ export default function HomePage() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${BACKEND_URL}/videos`, {
+      console.log('Original URL:', url);
+      const youtubeUrl = extractYouTubeUrl(url);
+      console.log('Extracted YouTube URL:', youtubeUrl);
+      
+      const apiUrl = new URL('/api/videos', BACKEND_URL).toString();
+      console.log('API URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: youtubeUrl }),
       });
 
       if (!response.ok) {
@@ -293,6 +369,7 @@ export default function HomePage() {
       setVideos(prevVideos => [newVideo, ...prevVideos]);
       setUrl('');
       message.success('Download started');
+      window.location.href = '/';  // Redirect to home page
     } catch (error) {
       console.error('Error:', error);
       message.error(error instanceof Error ? error.message : 'Failed to start download');
@@ -502,7 +579,7 @@ export default function HomePage() {
               </Typography.Text>
               {video.download_info && video.status === 'DOWNLOADING' && (
                 <div className="mt-2 text-sm text-gray-500">
-                  <div>Progress: {Math.round(video.download_info.progress)}%</div>
+                  <div>Progress: {video.download_info.progress ? Math.round(video.download_info.progress) : 0}%</div>
                   <div>Speed: {video.download_info.speed}</div>
                   <div>ETA: {video.download_info.eta}</div>
                   {video.download_info.downloaded_bytes !== undefined && video.download_info.total_bytes !== undefined && (
@@ -523,9 +600,13 @@ export default function HomePage() {
           />
           <Button
             icon={<CopyOutlined />}
-            onClick={() => {
-              navigator.clipboard.writeText(video.url);
-              message.success('URL copied to clipboard');
+            onClick={async () => {
+              const success = await copyToClipboard(video.url);
+              if (success) {
+                message.success('URL copied to clipboard');
+              } else {
+                message.error('Failed to copy URL to clipboard');
+              }
             }}
             title="Copy URL"
           />
