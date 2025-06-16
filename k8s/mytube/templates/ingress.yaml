@@ -9,7 +9,7 @@ metadata:
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:
-  - host: lhmswww.com
+  - host: mytube.elladali.com
     http:
       paths:
       - path: /

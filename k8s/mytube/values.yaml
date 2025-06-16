@@ -132,7 +132,7 @@ ingress:
   className: "traefik"
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-  host: "lhmswww.com"
+  host: "mytube.elladali.com"
   paths:
     - path: /
       pathType: Prefix
