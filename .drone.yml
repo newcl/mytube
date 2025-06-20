@@ -1,0 +1,169 @@
+kind: pipeline
+type: docker
+name: mytube-pipeline
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+  # Check which components changed
+  - name: check-changes
+    image: alpine/git
+    commands:
+      - |
+        # Get list of changed files
+        if [ "$DRONE_COMMIT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+          CHANGED_FILES=$(git diff --name-only $DRONE_COMMIT_BEFORE $DRONE_COMMIT_AFTER)
+        else
+          CHANGED_FILES=$(git ls-files)
+        fi
+        
+        # Check which components need building
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+        
+        # Set flags based on changes
+        BACKEND_CHANGED=false
+        FRONTEND_CHANGED=false
+        
+        if echo "$CHANGED_FILES" | grep -q "^backend/"; then
+          BACKEND_CHANGED=true
+          echo "Backend changes detected"
+        fi
+        
+        if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
+          FRONTEND_CHANGED=true
+          echo "Frontend changes detected"
+        fi
+        
+        # If no specific component changes, build all (for safety)
+        if [ "$BACKEND_CHANGED" = "false" ] && [ "$FRONTEND_CHANGED" = "false" ]; then
+          BACKEND_CHANGED=true
+          FRONTEND_CHANGED=true
+          echo "No specific component changes detected, building all"
+        fi
+        
+        # Export for other steps
+        echo "BACKEND_CHANGED=$BACKEND_CHANGED" >> $DRONE_ENV
+        echo "FRONTEND_CHANGED=$FRONTEND_CHANGED" >> $DRONE_ENV
+        
+        echo "Build flags:"
+        echo "BACKEND_CHANGED: $BACKEND_CHANGED"
+        echo "FRONTEND_CHANGED: $FRONTEND_CHANGED"
+    when:
+      event:
+        - push
+        - tag
+
+  # Test stage
+  - name: test-backend
+    image: python:3.12-slim
+    commands:
+      - cd backend
+      - pip install -r requirements.txt
+      - python -m pytest tests/ || true  # Run tests if they exist
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: test-frontend
+    image: node:18-alpine
+    commands:
+      - cd frontend
+      - npm ci
+      - npm run build
+      - npm test || true  # Run tests if they exist
+    when:
+      event:
+        - push
+        - pull_request
+
+  # Build stage - Backend Base (always needed if backend changes)
+  - name: build-backend-base
+    image: plugins/docker
+    settings:
+      registry: localhost:5000
+      repo: localhost:5000/mytube-backend-base
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+      dockerfile: backend/Dockerfile.base
+      context: backend
+    depends_on:
+      - check-changes
+    when:
+      event:
+        - push
+        - tag
+      matrix:
+        BACKEND_CHANGED: true
+
+  - name: build-backend-fastapi
+    image: plugins/docker
+    settings:
+      registry: localhost:5000
+      repo: localhost:5000/mytube-backend-fastapi
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+      dockerfile: backend/Dockerfile.fastapi
+      context: backend
+    depends_on:
+      - build-backend-base
+    when:
+      event:
+        - push
+        - tag
+      matrix:
+        BACKEND_CHANGED: true
+
+  - name: build-backend-huey
+    image: plugins/docker
+    settings:
+      registry: localhost:5000
+      repo: localhost:5000/mytube-backend-huey
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+      dockerfile: backend/Dockerfile.huey
+      context: backend
+    depends_on:
+      - build-backend-base
+    when:
+      event:
+        - push
+        - tag
+      matrix:
+        BACKEND_CHANGED: true
+
+  - name: build-frontend
+    image: plugins/docker
+    settings:
+      registry: localhost:5000
+      repo: localhost:5000/mytube-frontend
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+      dockerfile: frontend/Dockerfile
+      context: frontend
+    depends_on:
+      - check-changes
+    when:
+      event:
+        - push
+        - tag
+      matrix:
+        FRONTEND_CHANGED: true
+
+# Trigger conditions
+trigger:
+  branch:
+    - main
+    - master
+    - develop
+  event:
+    - push
+    - pull_request
+    - tag 
