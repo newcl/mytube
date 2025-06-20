@@ -5,15 +5,16 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Video, VideoStatus
 from schemas import VideoCreate, VideoOut, VideoUpdateStatus, VideoQuery
-from tasks import download_video_task
+from tasks import download_video_task, minio_client, MINIO_BUCKET
 from typing import List, Dict, Any
 import crud
 import logging
 import json
 import asyncio
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 import mimetypes
+from datetime import timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -25,6 +26,30 @@ router = APIRouter()
 def health_check():
     return {"status": "healthy"}
 
+def get_signed_url(minio_url: str, expires=3600):
+    if not minio_url or not minio_url.startswith("http"):
+        return minio_url
+    # Extract the MinIO object path from the URL
+    # e.g. https://minio.elladali.com/mytube/104/video.mp4 -> 104/video.mp4
+    parts = minio_url.split("/mytube/")
+    if len(parts) != 2:
+        return minio_url
+    minio_path = parts[1]
+    try:
+        return minio_client.presigned_get_object(MINIO_BUCKET, minio_path, expires=timedelta(seconds=expires))
+    except Exception as e:
+        logger.error(f"Failed to generate signed URL for {minio_path}: {e}")
+        return minio_url
+
+# Helper to sign video and thumbnail URLs
+
+def sign_video_urls(video):
+    if hasattr(video, 'file_path') and video.file_path:
+        video.file_path = get_signed_url(video.file_path)
+    if hasattr(video, 'thumbnail_url') and video.thumbnail_url:
+        video.thumbnail_url = get_signed_url(video.thumbnail_url)
+    return video
+
 @router.post("/videos", response_model=VideoOut)
 def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     logger.info(f"Received request to download video: {video.url}")
@@ -32,7 +57,7 @@ def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     db_video = crud.get_video_by_url(db, video.url)
     if db_video:
         logger.info(f"Video already exists with id: {db_video.id}")
-        return db_video
+        return sign_video_urls(db_video)
     
     # Create new video
     logger.info("Creating new video record")
@@ -43,7 +68,7 @@ def submit_video(video: VideoCreate, db: Session = Depends(get_db)):
     task = download_video_task(db_video.id)
     logger.info(f"Task queued with id: {task.id}")
     
-    return db_video
+    return sign_video_urls(db_video)
 
 @router.get("/videos", response_model=List[VideoOut])
 def list_videos(query: VideoQuery = None, db: Session = Depends(get_db)):
@@ -53,6 +78,7 @@ def list_videos(query: VideoQuery = None, db: Session = Depends(get_db)):
         logger.info(f"Found {len(videos)} videos")
         for video in videos:
             logger.debug(f"Video {video.id}: {video.title} ({video.status})")
+            sign_video_urls(video)
         return videos
     except Exception as e:
         logger.error(f"Error listing videos: {str(e)}")
@@ -77,21 +103,12 @@ def retry_video(video_id: int, db: Session = Depends(get_db)):
 
 @router.get("/videos/{video_id}/stream")
 async def stream_video(video_id: int, db: Session = Depends(get_db)):
-    """Stream video file directly for playback"""
     video = crud.get_video(db, video_id)
-    if not video or not video.file_path:
-        raise HTTPException(status_code=404, detail="Video not found")
-    
-    # Just use FileResponse with minimal options
-    return FileResponse(
-        video.file_path,
-        media_type='video/mp4',
-        filename=os.path.basename(video.file_path),
-        headers={
-            'Accept-Ranges': 'bytes',
-            'Content-Disposition': f'inline; filename="{os.path.basename(video.file_path)}"'
-        }
-    )
+    if not video or not video.file_path or not video.file_path.startswith("http"):
+        raise HTTPException(status_code=404, detail="Video not found or not available in MinIO")
+    minio_path = video.file_path.split("/mytube/")[-1]
+    signed_url = minio_client.presigned_get_object(MINIO_BUCKET, minio_path, expires=timedelta(seconds=3600))
+    return RedirectResponse(signed_url)
 
 @router.get("/videos/{video_id}/progress")
 async def video_progress(request: Request, video_id: int):
@@ -179,4 +196,4 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     video = crud.get_video(db, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    return video 
+    return sign_video_urls(video) 

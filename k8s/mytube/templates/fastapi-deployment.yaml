@@ -29,9 +29,27 @@ spec:
                 name: {{ .Release.Name }}-backend-config
             - secretRef:
                 name: {{ .Release.Name }}-backend-secrets
+          env:
+            - name: MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-backend-secrets
+                  key: minio-endpoint
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-backend-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-backend-secrets
+                  key: minio-secret-key
           volumeMounts:
             - name: downloads
               mountPath: /app/downloads
+            - name: mytube-tmp
+              mountPath: /tmp/mytube
           readinessProbe:
             httpGet:
               path: {{ .Values.fastapi.probes.readiness.path }}
@@ -48,6 +66,7 @@ spec:
             {{- toYaml .Values.fastapi.resources | nindent 12 }}
       volumes:
         - name: downloads
-          persistentVolumeClaim:
-            claimName: {{ .Release.Name }}-downloads
+          emptyDir: {}
+        - name: mytube-tmp
+          emptyDir: {}
 {{- end }} 

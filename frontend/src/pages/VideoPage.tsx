@@ -156,6 +156,7 @@ export default function VideoPage() {
   };
 
   const handlePlay = () => {
+    // This endpoint will redirect to the MinIO URL for downloaded videos
     const url = new URL(`/api/videos/${id}/stream`, BACKEND_URL).toString();
     window.open(url, '_blank');
   };
