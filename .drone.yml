@@ -116,9 +116,9 @@ steps:
 
   - name: update-helm-chart
     image: alpine/git
-    environment:
-      GITHUB_TOKEN:
-        from_secret: GITHUB_TOKEN
+    secrets:
+      - source: GITHUB_TOKEN
+        target: GITHUB_TOKEN
     commands:
       - apk add --no-cache yq
       - git config user.name "Drone CI"
