@@ -114,6 +114,32 @@ steps:
         - push
         - tag
 
+  - name: update-helm-chart
+    image: alpine/git
+    commands:
+      - apk add --no-cache yq
+      - git config user.name "Drone CI"
+      - git config user.email "drone@example.com"
+      - git clone https://${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
+      - cd /tmp/mytube-repo
+      - git checkout main
+      - |
+        # Update image tags for all three services with the commit SHA
+        yq e '.frontend.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+        yq e '.fastapi.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+        yq e '.huey.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+      - git add k8s/mytube/values.yaml
+      - git commit -m "CI: Update mytube images to ${DRONE_COMMIT_SHA:0:8}"
+      - git push origin main
+    depends_on:
+      - build-frontend
+      - build-backend-fastapi
+      - build-backend-huey
+    when:
+      event:
+        - push
+        - tag
+
 # Trigger conditions
 trigger:
   branch:
