@@ -121,9 +121,10 @@ steps:
         target: GITHUB_TOKEN
     commands:
       - apk add --no-cache yq
-      - git config user.name "Drone CI"
-      - git config user.email "drone@example.com"
-      - git clone https://${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
+      - git config --global user.name "Drone CI"
+      - git config --global user.email "drone@elladali.com"
+      # Clone the repository using the token for authentication
+      - git clone https://x-oauth-basic:${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
       - cd /tmp/mytube-repo
       - git checkout main
       - yq e '.frontend.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
@@ -131,6 +132,7 @@ steps:
       - yq e '.huey.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
       - git add k8s/mytube/values.yaml
       - 'git commit -m "CI: Update mytube images to ${DRONE_COMMIT_SHA:0:8}"'
+      # Push the changes using the token
       - git push origin main
     depends_on:
       - build-frontend
