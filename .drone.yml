@@ -117,7 +117,7 @@ steps:
   - name: update-helm-chart
     image: alpine/git
     secrets:
-      - source: GITHUB_TOKEN
+      - source: DOCKER_PASSWORD
         target: GITHUB_TOKEN
     commands:
       - apk add --no-cache yq
