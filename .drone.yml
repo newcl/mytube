@@ -123,11 +123,9 @@ steps:
       - git clone https://${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
       - cd /tmp/mytube-repo
       - git checkout main
-      - |
-        # Update image tags for all three services with the commit SHA
-        yq e '.frontend.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
-        yq e '.fastapi.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
-        yq e '.huey.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+      - yq e '.frontend.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+      - yq e '.fastapi.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
+      - yq e '.huey.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
       - git add k8s/mytube/values.yaml
       - git commit -m "CI: Update mytube images to ${DRONE_COMMIT_SHA:0:8}"
       - git push origin main
