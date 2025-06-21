@@ -14,13 +14,12 @@ COPY package*.json ./
 
 # Install dependencies
 RUN npm install
-RUN npm install react-responsive @types/react-responsive
 
 # Copy source code
 COPY . .
 
 # Build the app
-RUN VITE_BACKEND_URL=${VITE_BACKEND_URL} npm run build
+RUN npm run build
 
 # Production stage
 FROM nginx:alpine
