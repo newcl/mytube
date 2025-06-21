@@ -127,7 +127,7 @@ steps:
       - yq e '.fastapi.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
       - yq e '.huey.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
       - git add k8s/mytube/values.yaml
-      - git commit -m "CI: Update mytube images to ${DRONE_COMMIT_SHA:0:8}"
+      - 'git commit -m "CI: Update mytube images to ${DRONE_COMMIT_SHA:0:8}"'
       - git push origin main
     depends_on:
       - build-frontend
