@@ -35,13 +35,17 @@ steps:
   - name: build-backend-base
     image: plugins/docker
     settings:
-      registry: localhost:5000
-      repo: localhost:5000/mytube-backend-base
+      registry: ghcr.io
+      repo: ghcr.io/newcl/mytube-backend-base
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
       dockerfile: backend/Dockerfile.base
       context: backend
+      username:
+        from_secret: DOCKER_USERNAME
+      password:
+        from_secret: DOCKER_PASSWORD
     when:
       event:
         - push
@@ -50,13 +54,17 @@ steps:
   - name: build-backend-fastapi
     image: plugins/docker
     settings:
-      registry: localhost:5000
-      repo: localhost:5000/mytube-backend-fastapi
+      registry: ghcr.io
+      repo: ghcr.io/newcl/mytube-backend-fastapi
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
       dockerfile: backend/Dockerfile.fastapi
       context: backend
+      username:
+        from_secret: DOCKER_USERNAME
+      password:
+        from_secret: DOCKER_PASSWORD
     depends_on:
       - build-backend-base
     when:
@@ -67,13 +75,17 @@ steps:
   - name: build-backend-huey
     image: plugins/docker
     settings:
-      registry: localhost:5000
-      repo: localhost:5000/mytube-backend-huey
+      registry: ghcr.io
+      repo: ghcr.io/newcl/mytube-backend-huey
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
       dockerfile: backend/Dockerfile.huey
       context: backend
+      username:
+        from_secret: DOCKER_USERNAME
+      password:
+        from_secret: DOCKER_PASSWORD
     depends_on:
       - build-backend-base
     when:
@@ -84,13 +96,17 @@ steps:
   - name: build-frontend
     image: plugins/docker
     settings:
-      registry: localhost:5000
-      repo: localhost:5000/mytube-frontend
+      registry: ghcr.io
+      repo: ghcr.io/newcl/mytube-frontend
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
       dockerfile: frontend/Dockerfile
       context: frontend
+      username:
+        from_secret: DOCKER_USERNAME
+      password:
+        from_secret: DOCKER_PASSWORD
     when:
       event:
         - push

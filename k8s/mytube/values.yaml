@@ -1,16 +1,17 @@
 # Global values
 global:
-  imagePullSecrets: []
+  imagePullSecrets:
+    - name: ghcr-secret
   storageClass: "longhorn"
   namespace: "mytube"
-  imageRegistry: "localhost:5000"
+  imageRegistry: "ghcr.io"
 
 # Frontend configuration
 frontend:
   enabled: true
   replicaCount: 1
   image:
-    repository: mytube-frontend
+    repository: newcl/mytube-frontend
     tag: latest
     pullPolicy: Always
   service:
@@ -40,7 +41,7 @@ fastapi:
   enabled: true
   replicaCount: 1
   image:
-    repository: mytube-backend-fastapi
+    repository: newcl/mytube-backend-fastapi
     tag: latest
     pullPolicy: Always
   service:
@@ -71,7 +72,7 @@ huey:
   enabled: true
   replicaCount: 1
   image:
-    repository: mytube-backend-huey
+    repository: newcl/mytube-backend-huey
     tag: latest
     pullPolicy: Always
   resources:

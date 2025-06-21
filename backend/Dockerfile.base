@@ -26,17 +26,14 @@ ENV DATABASE_URL=postgresql://postgres:postgres@db:5432/mytube
 ENV REDIS_URL=redis://redis:6379/0
 
 # Create entrypoint script
-COPY <<EOF /app/entrypoint.sh
-#!/bin/bash
-set -e
-
-# Run migrations
-alembic upgrade head
-
-# Execute the main command
-exec "\$@"
-EOF
-
-RUN chmod +x /app/entrypoint.sh
+RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
+    echo 'set -e' >> /app/entrypoint.sh && \
+    echo '' >> /app/entrypoint.sh && \
+    echo '# Run migrations' >> /app/entrypoint.sh && \
+    echo 'alembic upgrade head' >> /app/entrypoint.sh && \
+    echo '' >> /app/entrypoint.sh && \
+    echo '# Execute the main command' >> /app/entrypoint.sh && \
+    echo 'exec "$@"' >> /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"] 
