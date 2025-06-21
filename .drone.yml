@@ -103,6 +103,8 @@ steps:
         - ${DRONE_COMMIT_SHA:0:8}
       dockerfile: frontend/Dockerfile
       context: frontend
+      build_args:
+        - VITE_BACKEND_URL=https://mytube.elladali.com
       username:
         from_secret: DOCKER_USERNAME
       password:
