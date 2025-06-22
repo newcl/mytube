@@ -118,7 +118,7 @@ steps:
     image: alpine/git
     environment:
       GITHUB_TOKEN:
-        from_secret: GITHUB_TOKEN
+        from_secret: github_token_for_commit
     commands:
       - apk add --no-cache yq
       - git config --global user.name "Drone CI"
