@@ -5,14 +5,13 @@ global:
   storageClass: "longhorn"
   namespace: "mytube"
   imageRegistry: "ghcr.io"
-
 # Frontend configuration
 frontend:
   enabled: true
   replicaCount: 1
   image:
     repository: newcl/mytube-frontend
-    tag: latest
+    tag: 48cef4c5
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -35,14 +34,13 @@ frontend:
       port: 80
       initialDelaySeconds: 15
       periodSeconds: 20
-
 # FastAPI configuration
 fastapi:
   enabled: true
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-fastapi
-    tag: latest
+    tag: 48cef4c5
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -66,14 +64,13 @@ fastapi:
       port: 8000
       initialDelaySeconds: 15
       periodSeconds: 60
-
 # Huey configuration
 huey:
   enabled: true
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-huey
-    tag: latest
+    tag: 48cef4c5
     pullPolicy: Always
   resources:
     limits:
@@ -82,7 +79,6 @@ huey:
     requests:
       cpu: 200m
       memory: 256Mi
-
 # Redis configuration
 redis:
   enabled: true
@@ -99,7 +95,6 @@ redis:
     requests:
       cpu: 100m
       memory: 128Mi
-
 # Backend configuration
 backend:
   config:
@@ -119,14 +114,12 @@ backend:
     database: "mytube"
     user: "mytube"
     password: "123456"
-
 # Persistent Volume configuration
 persistence:
   enabled: true
   storageClass: "longhorn"
   size: 10Gi
   accessMode: ReadWriteMany
-
 # Ingress configuration
 ingress:
   enabled: true
@@ -142,4 +135,4 @@ ingress:
     - path: /api
       pathType: Prefix
       service: fastapi
-      port: 80 
+      port: 80
