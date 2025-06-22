@@ -46,6 +46,16 @@ steps:
         from_secret: DOCKER_USERNAME
       password:
         from_secret: DOCKER_PASSWORD
+      # Build optimizations
+      build_args:
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - ghcr.io/newcl/mytube-backend-base:latest
+      platform: linux/amd64
+      # Resource limits
+      memory: 2g
+      cpu_quota: 100000
+      cpu_period: 100000
     when:
       event:
         - push
@@ -65,6 +75,16 @@ steps:
         from_secret: DOCKER_USERNAME
       password:
         from_secret: DOCKER_PASSWORD
+      # Build optimizations
+      build_args:
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - ghcr.io/newcl/mytube-backend-fastapi:latest
+      platform: linux/amd64
+      # Resource limits
+      memory: 2g
+      cpu_quota: 100000
+      cpu_period: 100000
     depends_on:
       - build-backend-base
     when:
@@ -86,6 +106,16 @@ steps:
         from_secret: DOCKER_USERNAME
       password:
         from_secret: DOCKER_PASSWORD
+      # Build optimizations
+      build_args:
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - ghcr.io/newcl/mytube-backend-huey:latest
+      platform: linux/amd64
+      # Resource limits
+      memory: 2g
+      cpu_quota: 100000
+      cpu_period: 100000
     depends_on:
       - build-backend-base
     when:
@@ -105,6 +135,14 @@ steps:
       context: frontend
       build_args:
         - VITE_BACKEND_URL=https://mytube.elladali.com
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - ghcr.io/newcl/mytube-frontend:latest
+      platform: linux/amd64
+      # Resource limits
+      memory: 2g
+      cpu_quota: 100000
+      cpu_period: 100000
       username:
         from_secret: DOCKER_USERNAME
       password:

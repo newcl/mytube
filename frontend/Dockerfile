@@ -9,11 +9,11 @@ RUN echo "Building with VITE_BACKEND_URL=${VITE_BACKEND_URL}"
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with npm ci (faster and more reliable)
+RUN npm ci --only=production
 
 # Copy source code
 COPY . .
