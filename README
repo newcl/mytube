@@ -1,45 +1,110 @@
-Goal 
+# MyTube 🎬
 
-Lets build a webapp to use at home, so everyone can watch youtube video without ads, we want to download the video first to avoid streaming challenges.
+> My first vibe coding project! A YouTube video downloader built with modern tech stack and lots of fun! 🚀
 
-Experience 
+## What's This? 🤔
 
-To submit a video 
-1. On home page there is a text box to submit youtube video url
-2. Or prefix the youtube video url, e.g. mytube.com/https://www.youtube.com/watch?v=SguCVRVWzTc so user only needs to prefix the domain name for easy access
+MyTube is a web application that helps you download YouTube videos using the powerful `yt-dlp` library. It's my first serious coding project where I actually had fun building something useful! 
 
-To see all past videos 
-1. Show a table to list all videos in the past or being downloaded 
-2. Table includes details e.g. url, thumbnail if available, date and time video submitted, video file size, status (downloading/downloaded/pending/fail/.etc to include all possible conditions)
-3. Table allow bulk operations 1. delete 2. retry if failed to download before 
+Built with **Cursor** (the best AI coding assistant ever! 🤖), this project taught me so much about modern web development, containerization, and Kubernetes deployment.
 
-Query videos 
-1. Search bar to allow fuzzy query by any text related to the video
-2. Search bar to allow search by date of submission (add short cuts in UI with e.g. 1 day ago, 3 days, 1 week ago, 1 month ago)
+## Architecture 🏗️
 
-Actual download process
-1. Use background job queue to actual download videos 
-2. Update download status and progrss when progress is made which is shown on frontend 
+This bad boy has **3 main components**:
 
-Video playback
-1. When clicking on table row e.g. title, url, thumbnail go to a play page e.g. mytube.com/play?url=https://www.youtube.com/watch?v=SguCVRVWzTc using video.js to play the video 
+- **🎨 React Frontend** - A beautiful web interface where you can paste YouTube URLs and watch the magic happen
+- **⚡ FastAPI Backend** - The brain that handles API requests and coordinates everything
+- **🔄 Huey Worker Queue** - The unsung hero that handles the actual video downloading in the background
 
-Implementation
-1. Use React to build the frontend experience with proper UI library shadcn, use Vite as the toolchain
-2. Use python FastAPI to build the backend and use Huey as the background queue 
-3. Use Postgresql to store any state so come up with table schemma and migrations, huey also use postgresql as storage for jobs
+## Tech Stack 🛠️
 
-Folder structure 
-1. create frontend folder for everything frontend
-2. create backend folder for everything backend 
+- **Frontend**: React + TypeScript + Vite + Tailwind CSS
+- **Backend**: FastAPI + Python + SQLAlchemy + Alembic
+- **Queue**: Huey + Redis
+- **Database**: PostgreSQL
+- **Containerization**: Docker + Multi-stage builds
+- **Orchestration**: Kubernetes + Helm
+- **CI/CD**: Drone CI
+- **Video Processing**: yt-dlp
 
+## Features ✨
 
-To restart backend servers 
+- 🎥 Download YouTube videos with custom quality settings
+- 📱 Responsive web interface
+- 🔄 Background processing with progress tracking
+- 🗄️ Persistent storage for downloads
+- 🐳 Ready for Kubernetes deployment
+- 🚀 Automated CI/CD pipeline
+- 📊 Download progress monitoring
 
-Use backend/venv virtual environment
+## Quick Start 🏃‍♂️
 
-`sh backend/restart_servers.sh`
+### Local Development
 
-To start frontend server 
-`cd frontend`
-`npm run dev`
+```bash
+# Clone the repo
+git clone https://github.com/newcl/mytube.git
+cd mytube
+
+# Start with Docker Compose
+docker-compose up -d
+```
+
+### Kubernetes Deployment
+
+```bash
+# Deploy to your cluster
+helm install mytube ./k8s/mytube
+```
+
+## Project Structure 📁
+
+```
+mytube/
+├── frontend/          # React app 🎨
+├── backend/           # FastAPI app ⚡
+├── k8s/              # Kubernetes manifests 🐳
+├── .drone.yml        # CI/CD pipeline 🚀
+└── README            # This file! 📖
+```
+
+## What I Learned 📚
+
+This project was a fantastic learning experience! I got to play with:
+
+- **Modern React patterns** with hooks and functional components
+- **FastAPI** for building blazing-fast APIs
+- **Background task processing** with Huey and Redis
+- **Docker multi-stage builds** for optimized images
+- **Kubernetes deployment** with Helm charts
+- **CI/CD automation** with Drone CI
+- **Database migrations** with Alembic
+
+## Code Quality 😅
+
+Let's be honest - this is my first serious project, so the code quality could definitely be improved! But hey, it works and I had a blast building it! 
+
+Some areas for improvement:
+- Better error handling
+- More comprehensive tests
+- Code documentation
+- Performance optimizations
+- Security hardening
+
+## Built with Cursor 🤖
+
+This entire project was built using **Cursor** - the AI-powered code editor that's like having a coding buddy who never gets tired! The AI suggestions, code completion, and debugging help made this project so much more enjoyable to build.
+
+## Contributing 🤝
+
+Feel free to contribute! This is a learning project, so any improvements, bug fixes, or feature suggestions are welcome. Just remember to be kind - we're all learning here! 😊
+
+## License 📄
+
+MIT License - feel free to use this code for your own projects!
+
+---
+
+**Happy coding! 🎉**
+
+*Built with ❤️ and lots of ☕ during late-night coding sessions*
