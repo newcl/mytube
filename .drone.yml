@@ -123,13 +123,7 @@ steps:
       - apk add --no-cache yq
       - git config --global user.name "Drone CI"
       - git config --global user.email "drone@elladali.com"
-      # Debug: Check if GITHUB_TOKEN is set
-      - echo "GITHUB_TOKEN is set: $([ -n "$GITHUB_TOKEN" ] && echo 'YES' || echo 'NO')"
-      - echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
-      # Clone the repository using the token for authentication
-      - git clone https://x-oauth-basic:${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
-      # Alternative method if the above fails
-      # - git clone https://${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
+      - git clone https://${GITHUB_TOKEN}@github.com/newcl/mytube.git /tmp/mytube-repo
       - cd /tmp/mytube-repo
       - git checkout main
       - yq e '.frontend.image.tag = "${DRONE_COMMIT_SHA:0:8}"' -i k8s/mytube/values.yaml
