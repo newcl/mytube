@@ -11,7 +11,7 @@ frontend:
   replicaCount: 1
   image:
     repository: newcl/mytube-frontend
-    tag: 48cef4c5
+    tag: 28743bad
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -40,7 +40,7 @@ fastapi:
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-fastapi
-    tag: 48cef4c5
+    tag: 28743bad
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -70,7 +70,7 @@ huey:
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-huey
-    tag: 48cef4c5
+    tag: 28743bad
     pullPolicy: Always
   resources:
     limits:
