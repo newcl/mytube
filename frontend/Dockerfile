@@ -13,7 +13,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies with npm ci (faster and more reliable)
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy source code
 COPY . .
