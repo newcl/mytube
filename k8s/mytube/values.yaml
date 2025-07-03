@@ -105,19 +105,8 @@ redis:
       memory: 128Mi
 # Backend configuration
 backend:
-  config:
-    postgresHost: "192.168.1.50"
-    databaseUrl: "postgresql://mytube:123456@192.168.1.50:5432/mytube"
-    redisUrl: "redis://{{ .Release.Name }}-redis:6379/0"
-    host: "0.0.0.0"
-    port: "8000"
-    workers: "4"
-    logLevel: "info"
-    hueyWorkers: "4"
-    hueyVerbose: "1"
-    hueyLogLevel: "INFO"
   postgres:
-    host: "192.168.1.50"
+    host: "192.168.1.55"
     port: "5432"
     database: "mytube"
     user: "mytube"

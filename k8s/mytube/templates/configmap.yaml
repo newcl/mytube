@@ -4,8 +4,8 @@ metadata:
   name: {{ .Release.Name }}-backend-config
   namespace: {{ .Values.global.namespace }}
 data:
-  POSTGRES_HOST: "{{ .Values.backend.postgres.host }}"
-  DATABASE_URL: "postgresql://{{ .Values.backend.postgres.user }}:{{ .Values.backend.postgres.password }}@{{ .Values.backend.postgres.host }}:{{ .Values.backend.postgres.port }}/{{ .Values.backend.postgres.database }}"
+  POSTGRES_HOST: "external-postgres"
+  DATABASE_URL: "postgresql://{{ .Values.backend.postgres.user }}:{{ .Values.backend.postgres.password }}@external-postgres:{{ .Values.backend.postgres.port }}/{{ .Values.backend.postgres.database }}"
   REDIS_URL: "redis://{{ .Release.Name }}-redis:6379/0"
   HOST: "0.0.0.0"
   PORT: "8000"
