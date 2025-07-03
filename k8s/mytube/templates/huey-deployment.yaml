@@ -29,13 +29,6 @@ spec:
                 name: {{ .Release.Name }}-backend-config
             - secretRef:
                 name: {{ .Release.Name }}-backend-secrets
-          env:
-            - name: MINIO_ENDPOINT
-              value: {{ .Values.minio.endpoint}}
-            - name: MINIO_ACCESS_KEY
-              value: {{ .Values.minio.accessKey}}
-            - name: MINIO_SECRET_KEY
-              value: {{ .Values.minio.secretKey}}
           volumeMounts:
             - name: downloads
               mountPath: /app/downloads
