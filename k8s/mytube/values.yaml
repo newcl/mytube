@@ -2,7 +2,7 @@
 global:
   imagePullSecrets:
     - name: ghcr-secret
-  storageClass: "longhorn"
+  storageClass: "local-path"
   namespace: "mytube"
   imageRegistry: "ghcr.io"
 # Frontend configuration
@@ -79,6 +79,14 @@ huey:
     requests:
       cpu: 200m
       memory: 256Mi
+
+# MinIO 
+
+minio:
+  endpoint: "minio.elladali.com"
+  accessKey: "2ySiXYFuj8PEyDQBXDGo"
+  secretKey: "dpOcByYUVr6GCLLAwTogp3DIA0ZnxZ3yWkqHIaXc"
+
 # Redis configuration
 redis:
   enabled: true

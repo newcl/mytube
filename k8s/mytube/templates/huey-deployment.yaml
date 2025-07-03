@@ -16,6 +16,10 @@ spec:
       labels:
         app: {{ .Release.Name }}-huey
     spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
       containers:
         - name: huey
           image: "{{ .Values.global.imageRegistry }}/{{ .Values.huey.image.repository }}:{{ .Values.huey.image.tag }}"
@@ -27,20 +31,11 @@ spec:
                 name: {{ .Release.Name }}-backend-secrets
           env:
             - name: MINIO_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-backend-secrets
-                  key: minio-endpoint
+              value: {{ .Values.minio.endpoint}}
             - name: MINIO_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-backend-secrets
-                  key: minio-access-key
+              value: {{ .Values.minio.accessKey}}
             - name: MINIO_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-backend-secrets
-                  key: minio-secret-key
+              value: {{ .Values.minio.secretKey}}
           volumeMounts:
             - name: downloads
               mountPath: /app/downloads
