@@ -84,8 +84,8 @@ huey:
 
 minio:
   endpoint: "minio.elladali.com"
-  accessKey: "2ySiXYFuj8PEyDQBXDGo"
-  secretKey: "dpOcByYUVr6GCLLAwTogp3DIA0ZnxZ3yWkqHIaXc"
+  accessKey: YOUR_KEY
+  secretKey: YOUR_SECRET
 
 # Redis configuration
 redis:
