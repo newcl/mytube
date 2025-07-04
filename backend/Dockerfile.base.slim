@@ -1,45 +1,34 @@
 # Build stage for dependencies that need compilation
-FROM python:3.11-alpine AS builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies for Alpine
-RUN apk add --no-cache \
-    build-base \
-    postgresql-dev \
-    pkgconfig \
-    libffi-dev \
-    openssl-dev \
-    cargo \
-    && rm -rf /var/cache/apk/*
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies with better caching and cleanup
+# Install Python dependencies with better caching
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --user -r requirements.txt && \
-    # Remove unnecessary files to reduce size
-    find /root/.local -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /root/.local -type d -name "*.pyc" -delete 2>/dev/null || true && \
-    find /root/.local -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
-    find /root/.local -type d -name "test" -exec rm -rf {} + 2>/dev/null || true && \
-    find /root/.local -name "*.pyx" -delete 2>/dev/null || true && \
-    find /root/.local -name "*.c" -delete 2>/dev/null || true && \
-    find /root/.local -name "*.h" -delete 2>/dev/null || true
+    pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
 # Install only runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    postgresql-libs \
-    libffi \
-    openssl \
-    && rm -rf /var/cache/apk/*
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/cache/apt/*
 
 # Copy Python packages from builder stage
 COPY --from=builder /root/.local /root/.local
@@ -60,7 +49,7 @@ ENV DATABASE_URL=postgresql://postgres:postgres@db:5432/mytube
 ENV REDIS_URL=redis://redis:6379/0
 
 # Create entrypoint script
-RUN echo '#!/bin/sh' > /app/entrypoint.sh && \
+RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
     echo 'set -e' >> /app/entrypoint.sh && \
     echo '' >> /app/entrypoint.sh && \
     echo '# Run migrations' >> /app/entrypoint.sh && \
