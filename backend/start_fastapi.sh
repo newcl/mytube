@@ -11,7 +11,7 @@ source venv/bin/activate
 
 # Start FastAPI server
 echo "Starting FastAPI server..."
-export MINIO_ENDPOINT="minio.elladali.com"
+# export MINIO_ENDPOINT="http://localhost:9000"
 # MinIO credentials should be set as environment variables
 # export MINIO_ACCESS_KEY="your-access-key"
 # export MINIO_SECRET_KEY="your-secret-key"

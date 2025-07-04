@@ -13,4 +13,5 @@ data:
   LOG_LEVEL: "info"
   HUEY_WORKERS: "4"
   HUEY_VERBOSE: "1"
-  HUEY_LOG_LEVEL: "INFO" 
+  HUEY_LOG_LEVEL: "INFO"
+  APP_ENV: "production" 

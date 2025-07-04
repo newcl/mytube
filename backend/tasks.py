@@ -13,16 +13,25 @@ from minio.error import S3Error
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+APP_ENV = os.getenv('APP_ENV', 'development')
+
 MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT')
 MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
 MINIO_BUCKET = 'mytube'
 
+protocol = "https" if APP_ENV != 'development' else "http"
+
+logger.info(f"MINIO_ENDPOINT: {MINIO_ENDPOINT}")
+logger.info(f"MINIO_ACCESS_KEY: {MINIO_ACCESS_KEY}")
+logger.info(f"MINIO_SECRET_KEY: {MINIO_SECRET_KEY}")
+logger.info(f"MINIO_BUCKET: {MINIO_BUCKET}")
+
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
-    secure=True
+    secure=APP_ENV != 'development'
 )
 
 def sanitize_filename(filename: str) -> str:
@@ -174,7 +183,7 @@ def download_video_task(video_id: int):
             logger.info("Created YoutubeDL instance")
             info = ydl.extract_info(video.url, download=True)
             logger.info(f"Download completed for video {video_id}")
-            logger.info(f"Extracted info: {info}")
+            # logger.info(f"Extracted info: {info}")
             video.title = info.get('title')
             # Get the downloaded file path
             downloaded_file = ydl.prepare_filename(info)
@@ -183,7 +192,7 @@ def download_video_task(video_id: int):
             upload_success = upload_to_minio(downloaded_file, minio_video_path, content_type='video/mp4')
             if not upload_success:
                 raise Exception('Failed to upload video to MinIO')
-            video.file_path = f"https://minio.elladali.com/mytube/{minio_video_path}"
+            video.file_path = f"{protocol}://{MINIO_ENDPOINT}/mytube/{minio_video_path}"
             video.file_size = os.path.getsize(downloaded_file)
             # Download and upload best thumbnail
             if best_thumbnail and best_thumbnail.get('url'):
@@ -199,7 +208,7 @@ def download_video_task(video_id: int):
                     minio_thumb_path = f"{video_id}/thumbnail{thumb_ext}"
                     thumb_upload_success = upload_to_minio(thumb_path, minio_thumb_path, content_type='image/jpeg')
                     if thumb_upload_success:
-                        video.thumbnail_url = f"https://minio.elladali.com/mytube/{minio_thumb_path}"
+                        video.thumbnail_url = f"{protocol}://{MINIO_ENDPOINT}/mytube/{minio_thumb_path}"
                         logger.info(f"Uploaded thumbnail to MinIO at {minio_thumb_path}")
                     else:
                         logger.error(f"Failed to upload thumbnail to MinIO for video {video_id}")

@@ -638,7 +638,7 @@ export default function HomePage() {
       <div className="max-w-7xl mx-auto">
         <Title level={2} className="mb-4 sm:mb-8 text-center sm:text-left">
           <a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>
-            YouTube Video Downloader
+            Mytube
           </a>
         </Title>
         
