@@ -555,22 +555,22 @@ export default function HomePage() {
     {
       title: 'Thumbnail',
       key: 'thumbnail',
-      width: 120,
+      width: 180,
       render: (_, record: Video) => (
-        <div style={{ padding: '8px 0' }}>
+        <div style={{ padding: '8px 0', overflow: 'hidden' }}>
           {record.thumbnail_url ? (
             <Image
               src={record.thumbnail_url}
               alt="Thumbnail"
-              width={120}
-              height={68}
+              width={180}
+              height={101}
               style={{ borderRadius: '4px', objectFit: 'cover' }}
               preview={false}
             />
           ) : (
             <div style={{
-              width: 120,
-              height: 68,
+              width: 180,
+              height: 101,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
