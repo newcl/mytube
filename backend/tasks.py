@@ -19,6 +19,7 @@ MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT')
 MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
 MINIO_BUCKET = 'mytube'
+MINIO_PUBLIC_URL = os.getenv('MINIO_PUBLIC_URL', MINIO_ENDPOINT)
 
 protocol = "https" if APP_ENV != 'development' else "http"
 
@@ -27,11 +28,20 @@ logger.info(f"MINIO_ACCESS_KEY: {MINIO_ACCESS_KEY}")
 logger.info(f"MINIO_SECRET_KEY: {MINIO_SECRET_KEY}")
 logger.info(f"MINIO_BUCKET: {MINIO_BUCKET}")
 
+# MinIO client for internal operations (upload, download, etc.)
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
-    secure=APP_ENV != 'development'
+    secure=False if os.getenv('APP_ENV') == 'development' else True
+)
+
+# Public MinIO client for generating presigned URLs accessible from browser
+public_minio_client = Minio(
+    MINIO_PUBLIC_URL,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
+    secure=False if os.getenv('APP_ENV') == 'development' else True
 )
 
 def sanitize_filename(filename: str) -> str:
@@ -192,7 +202,7 @@ def download_video_task(video_id: int):
             upload_success = upload_to_minio(downloaded_file, minio_video_path, content_type='video/mp4')
             if not upload_success:
                 raise Exception('Failed to upload video to MinIO')
-            video.file_path = f"{protocol}://{MINIO_ENDPOINT}/mytube/{minio_video_path}"
+            video.file_path = f"{protocol}://{MINIO_PUBLIC_URL}/mytube/{minio_video_path}"
             video.file_size = os.path.getsize(downloaded_file)
             # Download and upload best thumbnail
             if best_thumbnail and best_thumbnail.get('url'):
@@ -208,7 +218,7 @@ def download_video_task(video_id: int):
                     minio_thumb_path = f"{video_id}/thumbnail{thumb_ext}"
                     thumb_upload_success = upload_to_minio(thumb_path, minio_thumb_path, content_type='image/jpeg')
                     if thumb_upload_success:
-                        video.thumbnail_url = f"{protocol}://{MINIO_ENDPOINT}/mytube/{minio_thumb_path}"
+                        video.thumbnail_url = f"{protocol}://{MINIO_PUBLIC_URL}/mytube/{minio_thumb_path}"
                         logger.info(f"Uploaded thumbnail to MinIO at {minio_thumb_path}")
                     else:
                         logger.error(f"Failed to upload thumbnail to MinIO for video {video_id}")

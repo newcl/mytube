@@ -1,4 +1,4 @@
-FROM ghcr.io/newcl/mytube-backend-base:latest
+FROM mytube-backend-base:latest
 
 # Huey specific environment variables
 ENV HUEY_WORKERS=4

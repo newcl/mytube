@@ -70,7 +70,13 @@ async def get_download(filename: str):
 # Configure CORS to allow requests from the frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://192.168.1.50:5173", "http://127.0.0.1:5173", "http://localhost:5173"],  # Frontend URL
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.1.50:5173"
+    ],  # Frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

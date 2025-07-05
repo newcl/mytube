@@ -1,4 +1,4 @@
-FROM ghcr.io/newcl/mytube-backend-base:latest
+FROM mytube-backend-base:latest
 
 # Expose FastAPI port
 EXPOSE 8000

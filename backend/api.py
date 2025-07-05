@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Video, VideoStatus
 from schemas import VideoCreate, VideoOut, VideoUpdateStatus, VideoQuery
-from tasks import download_video_task, minio_client, MINIO_BUCKET
+from tasks import download_video_task, minio_client, public_minio_client, MINIO_BUCKET
 from typing import List, Dict, Any
 import crud
 import logging
@@ -27,16 +27,23 @@ def health_check():
     return {"status": "healthy"}
 
 def get_signed_url(minio_url: str, expires=3600):
+    logger.debug(f"get_signed_url called with: {minio_url}")
     if not minio_url or not minio_url.startswith("http"):
+        logger.debug(f"Returning original URL (not http): {minio_url}")
         return minio_url
     # Extract the MinIO object path from the URL
     # e.g. https://minio.elladali.com/mytube/104/video.mp4 -> 104/video.mp4
     parts = minio_url.split("/mytube/")
     if len(parts) != 2:
+        logger.debug(f"Returning original URL (no /mytube/ found): {minio_url}")
         return minio_url
     minio_path = parts[1]
+    logger.debug(f"Extracted minio_path: {minio_path}")
     try:
-        return minio_client.presigned_get_object(MINIO_BUCKET, minio_path, expires=timedelta(seconds=expires))
+        # Use the internal minio_client to generate the presigned URL
+        signed_url = minio_client.presigned_get_object(MINIO_BUCKET, minio_path, expires=timedelta(seconds=expires))
+        logger.debug(f"Generated presigned URL: {signed_url}")
+        return signed_url
     except Exception as e:
         logger.error(f"Failed to generate signed URL for {minio_path}: {e}")
         return minio_url
@@ -107,6 +114,8 @@ async def stream_video(video_id: int, db: Session = Depends(get_db)):
     if not video or not video.file_path or not video.file_path.startswith("http"):
         raise HTTPException(status_code=404, detail="Video not found or not available in MinIO")
     minio_path = video.file_path.split("/mytube/")[-1]
+    
+    # Use the internal minio_client to generate the presigned URL
     signed_url = minio_client.presigned_get_object(MINIO_BUCKET, minio_path, expires=timedelta(seconds=3600))
     return RedirectResponse(signed_url)
 

@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mytube
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+      MINIO_BUCKETS: mytube
+      MINIO_SERVER_URL: "http://localhost:9000"
+    entrypoint: /bin/sh
+    command: /minio-init.sh
+    ports:
+      - "9000:9000"  # API port
+      - "9001:9001"  # Console port
+    volumes:
+      - minio_data:/data
+      - ./minio-init.sh:/minio-init.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fastapi
+    environment:
+      - DATABASE_URL=postgresql://mytube:123456@db:5432/mytube
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=mytube
+      - MINIO_PUBLIC_URL=localhost:9000
+      - APP_ENV=development
+      - HOST=0.0.0.0
+      - PORT=8000
+      - WORKERS=4
+      - LOG_LEVEL=info
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/downloads:/app/downloads
+      - ./backend/tmp:/tmp/mytube
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  huey:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.huey
+    environment:
+      - DATABASE_URL=postgresql://mytube:123456@db:5432/mytube
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=mytube
+      - MINIO_PUBLIC_URL=localhost:9000
+      - APP_ENV=development
+      - HUEY_WORKERS=4
+      - HUEY_VERBOSE=1
+      - HUEY_LOG_LEVEL=INFO
+    volumes:
+      - ./backend/downloads:/app/downloads
+      - ./backend/tmp:/tmp/mytube
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      fastapi:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data: 
