@@ -9,5 +9,5 @@ ENV PORT=8000
 ENV WORKERS=4
 ENV LOG_LEVEL=info
 
-# Set the command to run FastAPI
+# Set the command to run FastAPI (entrypoint will handle migrations)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"] 
