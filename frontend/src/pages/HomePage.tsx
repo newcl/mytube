@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, message, Space, Table, Tag, Image, Tooltip, Grid, Typography, Card, Input } from 'antd';
+import { Button, message, Space, Table, Tag, Image, Tooltip, Grid, Typography, Card, Input, Dropdown, Modal, Form, Tabs } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { 
   PlayCircleOutlined, 
@@ -7,7 +7,10 @@ import {
   DownloadOutlined,
   PictureOutlined,
   LinkOutlined,
-  CopyOutlined
+  CopyOutlined,
+  PlusOutlined,
+  FolderAddOutlined,
+  FolderOutlined
 } from '@ant-design/icons';
 import { BACKEND_URL } from '../config';
 
@@ -35,11 +38,23 @@ interface Video {
   download_info: DownloadInfo;
 }
 
+interface Playlist {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  video_count: number;
+}
+
 export default function HomePage() {
   const [url, setUrl] = useState('');
   const [videos, setVideos] = useState<Video[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatePlaylistModalVisible, setIsCreatePlaylistModalVisible] = useState(false);
+  const [createPlaylistForm] = Form.useForm();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const { Title } = Typography;
@@ -144,6 +159,129 @@ export default function HomePage() {
     } catch (error) {
       console.error('Error deleting video:', error);
       message.error('Failed to delete video');
+    }
+  };
+
+  // Playlist functions
+  const fetchPlaylists = async () => {
+    try {
+      const response = await fetch(new URL('/api/playlists', BACKEND_URL).toString());
+      if (response.ok) {
+        const data = await response.json();
+        setPlaylists(data);
+      }
+    } catch (error) {
+      console.error('Error fetching playlists:', error);
+    }
+  };
+
+  const createPlaylist = async (values: { name: string; description?: string }) => {
+    try {
+      const response = await fetch(new URL('/api/playlists', BACKEND_URL).toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(values),
+      });
+      
+      if (response.ok) {
+        const newPlaylist = await response.json();
+        setPlaylists(prev => [newPlaylist, ...prev]);
+        message.success('Playlist created successfully');
+        setIsCreatePlaylistModalVisible(false);
+        createPlaylistForm.resetFields();
+        return newPlaylist;
+      } else {
+        message.error('Failed to create playlist');
+        return null;
+      }
+    } catch (error) {
+      console.error('Error creating playlist:', error);
+      message.error('Failed to create playlist');
+      return null;
+    }
+  };
+
+  const deletePlaylist = async (playlistId: number) => {
+    try {
+      const response = await fetch(new URL(`/api/playlists/${playlistId}`, BACKEND_URL).toString(), {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        setPlaylists(prev => prev.filter(p => p.id !== playlistId));
+        message.success('Playlist deleted successfully');
+      } else {
+        message.error('Failed to delete playlist');
+      }
+    } catch (error) {
+      console.error('Error deleting playlist:', error);
+      message.error('Failed to delete playlist');
+    }
+  };
+
+  const playPlaylist = async (playlistId: number) => {
+    try {
+      const response = await fetch(new URL(`/api/playlists/${playlistId}`, BACKEND_URL).toString());
+      if (response.ok) {
+        const playlist = await response.json();
+        if (playlist.videos && playlist.videos.length > 0) {
+          // Open the first video in the playlist
+          const firstVideo = playlist.videos[0];
+          const streamUrl = new URL(`/api/videos/${firstVideo.id}/stream`, BACKEND_URL).toString();
+          window.open(streamUrl, '_blank');
+        } else {
+          message.warning('This playlist has no videos');
+        }
+      } else {
+        message.error('Failed to load playlist');
+      }
+    } catch (error) {
+      console.error('Error playing playlist:', error);
+      message.error('Failed to play playlist');
+    }
+  };
+
+  const addVideoToPlaylist = async (videoId: string, playlistId: number) => {
+    try {
+      const response = await fetch(new URL(`/api/videos/${videoId}/playlists`, BACKEND_URL).toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ playlist_id: playlistId }),
+      });
+      
+      if (response.ok) {
+        message.success('Video added to playlist successfully');
+        // Refresh playlists to update video counts
+        fetchPlaylists();
+      } else {
+        message.error('Failed to add video to playlist');
+      }
+    } catch (error) {
+      console.error('Error adding video to playlist:', error);
+      message.error('Failed to add video to playlist');
+    }
+  };
+
+  const handleAddToPlaylist = async (videoId: string, playlistId: number | 'new') => {
+    if (playlistId === 'new') {
+      setIsCreatePlaylistModalVisible(true);
+      // Store the video ID to add after playlist creation
+      createPlaylistForm.setFieldsValue({ videoId });
+    } else {
+      await addVideoToPlaylist(videoId, playlistId as number);
+    }
+  };
+
+  const handleCreatePlaylistAndAdd = async (values: { name: string; description?: string; videoId?: string }) => {
+    const { videoId, ...playlistData } = values;
+    const newPlaylist = await createPlaylist(playlistData);
+    
+    if (newPlaylist && videoId) {
+      await addVideoToPlaylist(videoId, newPlaylist.id);
     }
   };
 
@@ -263,6 +401,10 @@ export default function HomePage() {
       Object.keys(eventSources).forEach(cleanupEventSource);
     };
   }, [videos]); 
+
+  useEffect(() => {
+    fetchPlaylists();
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -426,8 +568,10 @@ export default function HomePage() {
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
+      // width: 400,
+      ellipsis: true,
       render: (title: string) => (
-        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500' }}>
+        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', maxWidth: 230, display: 'inline-block', verticalAlign: 'middle' }}>
           {title}
         </Typography.Text>
       ),
@@ -478,53 +622,83 @@ export default function HomePage() {
       title: 'Actions',
       key: 'actions',
       width: '20%',
-      render: (_: any, record: Video) => (
-        <Space>
-          <Tooltip title="Play">
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={() => handlePlay(record)}
-              disabled={record.status !== 'DOWNLOADED'}
-            />
-          </Tooltip>
-          <Tooltip title="Copy Video URL">
-            <Button
-              icon={<LinkOutlined />}
-              onClick={async () => {
-                const success = await copyToClipboard(record.url);
-                if (success) {
-                  message.success('Video URL copied to clipboard');
-                } else {
-                  message.error('Failed to copy URL to clipboard');
-                }
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="Copy Stream URL">
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={async () => {
-                const streamUrl = new URL(`/api/videos/${record.id}/stream`, BACKEND_URL).toString();
-                const success = await copyToClipboard(streamUrl);
-                if (success) {
-                  message.success('Stream URL copied to clipboard');
-                } else {
-                  message.error('Failed to copy stream URL');
-                }
-              }}
-              title="Copy Stream URL"
-            />
-          </Tooltip>
-          <Tooltip title="Delete">
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record.id)}
-            />
-          </Tooltip>
-        </Space>
-      ),
+      render: (_: any, record: Video) => {
+        const playlistItems = [
+          {
+            key: 'new',
+            label: 'New Playlist',
+            icon: <PlusOutlined />,
+            onClick: () => handleAddToPlaylist(record.id, 'new'),
+          },
+          ...(playlists.length > 0 ? [{ type: 'divider' as const }] : []),
+          ...playlists.map(playlist => ({
+            key: playlist.id.toString(),
+            label: `${playlist.name} (${playlist.video_count} videos)`,
+            icon: <FolderAddOutlined />,
+            onClick: () => handleAddToPlaylist(record.id, playlist.id),
+          })),
+        ];
+
+        return (
+          <Space>
+            <Tooltip title="Play">
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={() => handlePlay(record)}
+                disabled={record.status !== 'DOWNLOADED'}
+              />
+            </Tooltip>
+            <Dropdown
+              menu={{ items: playlistItems }}
+              placement="bottomRight"
+              trigger={['click']}
+            >
+              <Tooltip title="Add to Playlist">
+                <Button
+                  icon={<FolderAddOutlined />}
+                  onClick={(e) => e.preventDefault()}
+                />
+              </Tooltip>
+            </Dropdown>
+            <Tooltip title="Copy Video URL">
+              <Button
+                icon={<LinkOutlined />}
+                onClick={async () => {
+                  const success = await copyToClipboard(record.url);
+                  if (success) {
+                    message.success('Video URL copied to clipboard');
+                  } else {
+                    message.error('Failed to copy URL to clipboard');
+                  }
+                }}
+              />
+            </Tooltip>
+            <Tooltip title="Copy Stream URL">
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={async () => {
+                  const streamUrl = new URL(`/api/videos/${record.id}/stream`, BACKEND_URL).toString();
+                  const success = await copyToClipboard(streamUrl);
+                  if (success) {
+                    message.success('Stream URL copied to clipboard');
+                  } else {
+                    message.error('Failed to copy stream URL');
+                  }
+                }}
+                title="Copy Stream URL"
+              />
+            </Tooltip>
+            <Tooltip title="Delete">
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete(record.id)}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -610,6 +784,32 @@ export default function HomePage() {
             disabled={video.status !== 'DOWNLOADED'}
             title="Play"
           />
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'new',
+                  label: 'New Playlist',
+                  icon: <PlusOutlined />,
+                  onClick: () => handleAddToPlaylist(video.id, 'new'),
+                },
+                ...(playlists.length > 0 ? [{ type: 'divider' as const }] : []),
+                ...playlists.map(playlist => ({
+                  key: playlist.id.toString(),
+                  label: `${playlist.name} (${playlist.video_count} videos)`,
+                  icon: <FolderAddOutlined />,
+                  onClick: () => handleAddToPlaylist(video.id, playlist.id),
+                })),
+              ]
+            }}
+            placement="bottomRight"
+            trigger={['click']}
+          >
+            <Button
+              icon={<FolderAddOutlined />}
+              title="Add to Playlist"
+            />
+          </Dropdown>
           <Button
             icon={<CopyOutlined />}
             onClick={async () => {
@@ -632,6 +832,75 @@ export default function HomePage() {
       </Card>
     );
   };
+
+  const playlistColumns: ColumnsType<Playlist> = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      ellipsis: true,
+      render: (name: string) => (
+        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', maxWidth: 200, display: 'inline-block' }}>
+          {name}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+      render: (description: string) => (
+        <Typography.Text ellipsis type="secondary" style={{ maxWidth: 300, display: 'inline-block' }}>
+          {description || 'No description'}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: 'Videos',
+      dataIndex: 'video_count',
+      key: 'video_count',
+      width: 100,
+      render: (count: number) => (
+        <Tag color="blue">{count} videos</Tag>
+      ),
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 150,
+      render: (date: string) => (
+        <Typography.Text type="secondary">
+          {new Date(date).toLocaleDateString()}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 200,
+      render: (_: any, record: Playlist) => (
+        <Space>
+          <Tooltip title="Play Playlist">
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={() => playPlaylist(record.id)}
+              disabled={record.video_count === 0}
+            />
+          </Tooltip>
+          <Tooltip title="Delete Playlist">
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => deletePlaylist(record.id)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
@@ -673,27 +942,125 @@ export default function HomePage() {
         </div>
 
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
-          {isMobile ? (
-            <div>
-              {videos.map(video => renderCard(video))}
-            </div>
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={videos}
-              rowKey="id"
-              pagination={{ 
-                pageSize: 10,
-                responsive: true,
-                showSizeChanger: true,
-                showTotal: (total) => `Total ${total} items`
-              }}
-              scroll={{ x: 'max-content' }}
-              loading={isLoading}
-            />
-          )}
+          <Tabs
+            defaultActiveKey="videos"
+            items={[
+              {
+                key: 'videos',
+                label: (
+                  <span>
+                    <DownloadOutlined />
+                    Videos ({videos.length})
+                  </span>
+                ),
+                children: (
+                  isMobile ? (
+                    <div>
+                      {videos.map(video => renderCard(video))}
+                    </div>
+                  ) : (
+                    <Table
+                      columns={columns}
+                      dataSource={videos}
+                      rowKey="id"
+                      pagination={{ 
+                        pageSize: 10,
+                        responsive: true,
+                        showSizeChanger: true,
+                        showTotal: (total) => `Total ${total} items`
+                      }}
+                      scroll={{ x: 'max-content' }}
+                      loading={isLoading}
+                    />
+                  )
+                ),
+              },
+              {
+                key: 'playlists',
+                label: (
+                  <span>
+                    <FolderOutlined />
+                    Playlists ({playlists.length})
+                  </span>
+                ),
+                children: (
+                  <div>
+                    <div className="mb-4 flex justify-between items-center">
+                      <Typography.Title level={4} style={{ margin: 0 }}>
+                        Your Playlists
+                      </Typography.Title>
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => setIsCreatePlaylistModalVisible(true)}
+                      >
+                        Create Playlist
+                      </Button>
+                    </div>
+                    <Table
+                      columns={playlistColumns}
+                      dataSource={playlists}
+                      rowKey="id"
+                      pagination={{ 
+                        pageSize: 10,
+                        responsive: true,
+                        showSizeChanger: true,
+                        showTotal: (total) => `Total ${total} playlists`
+                      }}
+                      scroll={{ x: 'max-content' }}
+                      loading={isLoading}
+                    />
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
+
+      {/* Create Playlist Modal */}
+      <Modal
+        title="Create New Playlist"
+        open={isCreatePlaylistModalVisible}
+        onCancel={() => {
+          setIsCreatePlaylistModalVisible(false);
+          createPlaylistForm.resetFields();
+        }}
+        footer={null}
+      >
+        <Form
+          form={createPlaylistForm}
+          layout="vertical"
+          onFinish={handleCreatePlaylistAndAdd}
+        >
+          <Form.Item
+            name="name"
+            label="Playlist Name"
+            rules={[{ required: true, message: 'Please enter a playlist name' }]}
+          >
+            <Input placeholder="Enter playlist name" />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label="Description (Optional)"
+          >
+            <Input.TextArea placeholder="Enter playlist description" rows={3} />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                Create Playlist
+              </Button>
+              <Button onClick={() => {
+                setIsCreatePlaylistModalVisible(false);
+                createPlaylistForm.resetFields();
+              }}>
+                Cancel
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 } 

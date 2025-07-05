@@ -3,9 +3,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Video, VideoStatus
-from schemas import VideoCreate, VideoOut, VideoUpdateStatus, VideoQuery
-from tasks import download_video_task, minio_client, public_minio_client, MINIO_BUCKET
+from models import Video, VideoStatus, Playlist
+from schemas import VideoCreate, VideoOut, VideoUpdateStatus, VideoQuery, PlaylistCreate, PlaylistUpdate, PlaylistOut, PlaylistWithVideos, AddVideoToPlaylist
+from tasks import download_video_task, minio_client, MINIO_BUCKET
 from typing import List, Dict, Any
 import crud
 import logging
@@ -205,4 +205,64 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     video = crud.get_video(db, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    return sign_video_urls(video) 
+    return sign_video_urls(video)
+
+# Playlist endpoints
+@router.post("/playlists", response_model=PlaylistOut)
+def create_playlist(playlist: PlaylistCreate, db: Session = Depends(get_db)):
+    logger.info(f"Creating playlist: {playlist.name}")
+    db_playlist = crud.create_playlist(db, playlist.name, playlist.description)
+    return db_playlist
+
+@router.get("/playlists", response_model=List[PlaylistOut])
+def list_playlists(db: Session = Depends(get_db)):
+    logger.info("Listing playlists")
+    playlists = crud.get_playlists(db)
+    # Add video count to each playlist
+    for playlist in playlists:
+        playlist.video_count = len(playlist.videos)
+    return playlists
+
+@router.get("/playlists/{playlist_id}", response_model=PlaylistWithVideos)
+def get_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    playlist = crud.get_playlist(db, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    # Sign URLs for all videos in the playlist
+    for video in playlist.videos:
+        sign_video_urls(video)
+    
+    return playlist
+
+@router.put("/playlists/{playlist_id}", response_model=PlaylistOut)
+def update_playlist(playlist_id: int, playlist: PlaylistUpdate, db: Session = Depends(get_db)):
+    logger.info(f"Updating playlist {playlist_id}: {playlist.name}")
+    db_playlist = crud.update_playlist(db, playlist_id, playlist.name, playlist.description)
+    if not db_playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    return db_playlist
+
+@router.delete("/playlists/{playlist_id}")
+def delete_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Deleting playlist {playlist_id}")
+    success = crud.delete_playlist(db, playlist_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    return {"message": "Playlist deleted successfully"}
+
+@router.post("/videos/{video_id}/playlists")
+def add_video_to_playlist(video_id: int, request: AddVideoToPlaylist, db: Session = Depends(get_db)):
+    logger.info(f"Adding video {video_id} to playlist {request.playlist_id}")
+    success = crud.add_video_to_playlist(db, request.playlist_id, video_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Video or playlist not found")
+    return {"message": "Video added to playlist successfully"}
+
+@router.delete("/videos/{video_id}/playlists/{playlist_id}")
+def remove_video_from_playlist(video_id: int, playlist_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Removing video {video_id} from playlist {playlist_id}")
+    success = crud.remove_video_from_playlist(db, playlist_id, video_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Video or playlist not found")
+    return {"message": "Video removed from playlist successfully"} 

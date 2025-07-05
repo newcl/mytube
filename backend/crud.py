@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import Video, VideoStatus
+from models import Video, VideoStatus, Playlist
 from schemas import VideoCreate, VideoQuery
 from typing import List, Optional
 from sqlalchemy import or_, and_
@@ -33,14 +33,20 @@ def create_video(db: Session, url: str) -> Video:
     db.refresh(db_video)
     return db_video
 
-def get_videos(db: Session, query: Optional[VideoQuery] = None) -> List[Video]:
-    q = db.query(Video)
+def get_videos(db: Session, query: VideoQuery = None) -> List[Video]:
+    videos_query = db.query(Video)
+    
     if query:
         if query.status:
-            q = q.filter(Video.status == query.status)
+            videos_query = videos_query.filter(Video.status == query.status)
         if query.search:
-            q = q.filter(or_(Video.url.ilike(f"%{query.search}%"), Video.title.ilike(f"%{query.search}%")))
-    return q.order_by(Video.created_at.desc()).all()
+            search_term = f"%{query.search}%"
+            videos_query = videos_query.filter(
+                (Video.title.contains(search_term)) | 
+                (Video.url.contains(search_term))
+            )
+    
+    return videos_query.order_by(Video.created_at.desc()).all()
 
 def delete_video(db: Session, video_id: int) -> bool:
     video = get_video(db, video_id)
@@ -117,4 +123,63 @@ def bulk_retry(db: Session, ids: List[int]):
         {Video.status: VideoStatus.PENDING, Video.error_message: None},
         synchronize_session=False
     )
-    db.commit() 
+    db.commit()
+
+def get_playlist(db: Session, playlist_id: int) -> Optional[Playlist]:
+    return db.query(Playlist).filter(Playlist.id == playlist_id).first()
+
+def get_playlists(db: Session) -> List[Playlist]:
+    return db.query(Playlist).order_by(Playlist.created_at.desc()).all()
+
+def create_playlist(db: Session, name: str, description: str = None) -> Playlist:
+    db_playlist = Playlist(name=name, description=description)
+    db.add(db_playlist)
+    db.commit()
+    db.refresh(db_playlist)
+    return db_playlist
+
+def update_playlist(db: Session, playlist_id: int, name: str, description: str = None) -> Optional[Playlist]:
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if playlist:
+        playlist.name = name
+        playlist.description = description
+        db.commit()
+        db.refresh(playlist)
+        return playlist
+    return None
+
+def delete_playlist(db: Session, playlist_id: int) -> bool:
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if playlist:
+        db.delete(playlist)
+        db.commit()
+        return True
+    return False
+
+def add_video_to_playlist(db: Session, playlist_id: int, video_id: int) -> bool:
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    video = db.query(Video).filter(Video.id == video_id).first()
+    
+    if playlist and video:
+        if video not in playlist.videos:
+            playlist.videos.append(video)
+            db.commit()
+            return True
+    return False
+
+def remove_video_from_playlist(db: Session, playlist_id: int, video_id: int) -> bool:
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    video = db.query(Video).filter(Video.id == video_id).first()
+    
+    if playlist and video:
+        if video in playlist.videos:
+            playlist.videos.remove(video)
+            db.commit()
+            return True
+    return False
+
+def get_playlist_videos(db: Session, playlist_id: int) -> List[Video]:
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if playlist:
+        return playlist.videos
+    return [] 

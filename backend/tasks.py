@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 APP_ENV = os.getenv('APP_ENV', 'development')
 
+logger.info(f"APP_ENV: {APP_ENV}")
+
 MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT')
 MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
@@ -22,26 +24,22 @@ MINIO_BUCKET = 'mytube'
 MINIO_PUBLIC_URL = os.getenv('MINIO_PUBLIC_URL', MINIO_ENDPOINT)
 
 protocol = "https" if APP_ENV != 'development' else "http"
+secure = False if APP_ENV == 'development' else True
+
+logger.info(f"protocol: {protocol}")
+logger.info(f"secure: {secure}")
 
 logger.info(f"MINIO_ENDPOINT: {MINIO_ENDPOINT}")
 logger.info(f"MINIO_ACCESS_KEY: {MINIO_ACCESS_KEY}")
 logger.info(f"MINIO_SECRET_KEY: {MINIO_SECRET_KEY}")
 logger.info(f"MINIO_BUCKET: {MINIO_BUCKET}")
 
-# MinIO client for internal operations (upload, download, etc.)
+# MinIO client for all operations
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
-    secure=False if os.getenv('APP_ENV') == 'development' else True
-)
-
-# Public MinIO client for generating presigned URLs accessible from browser
-public_minio_client = Minio(
-    MINIO_PUBLIC_URL,
-    access_key=MINIO_ACCESS_KEY,
-    secret_key=MINIO_SECRET_KEY,
-    secure=False if os.getenv('APP_ENV') == 'development' else True
+    secure=secure
 )
 
 def sanitize_filename(filename: str) -> str:
