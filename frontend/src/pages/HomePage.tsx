@@ -10,7 +10,8 @@ import {
   CopyOutlined,
   PlusOutlined,
   FolderAddOutlined,
-  FolderOutlined
+  FolderOutlined,
+  CloseOutlined
 } from '@ant-design/icons';
 import { BACKEND_URL } from '../config';
 
@@ -54,11 +55,15 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatePlaylistModalVisible, setIsCreatePlaylistModalVisible] = useState(false);
+  const [isVideoPlayerModalVisible, setIsVideoPlayerModalVisible] = useState(false);
+  const [currentPlayingVideo, setCurrentPlayingVideo] = useState<Video | null>(null);
+  const [currentPlaylist, setCurrentPlaylist] = useState<{ id: number; name: string; videos: Video[] } | null>(null);
   const [createPlaylistForm] = Form.useForm();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const { Title } = Typography;
   const urlRef = useRef<string>('');
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
@@ -143,8 +148,17 @@ export default function HomePage() {
 
   const handlePlay = (video: Video) => {
     if (video.status === 'DOWNLOADED') {
-      const streamUrl = new URL(`/api/videos/${video.id}/stream`, BACKEND_URL).toString();
-      window.open(streamUrl, '_blank');
+      setCurrentPlayingVideo(video);
+      setCurrentPlaylist(null); // Clear playlist when playing individual video
+      setIsVideoPlayerModalVisible(true);
+    }
+  };
+
+  const handlePlaylistVideoClick = (video: Video) => {
+    if (video.status === 'DOWNLOADED') {
+      setCurrentPlayingVideo(video);
+    } else {
+      message.warning('This video is not ready to play yet');
     }
   };
 
@@ -227,10 +241,15 @@ export default function HomePage() {
       if (response.ok) {
         const playlist = await response.json();
         if (playlist.videos && playlist.videos.length > 0) {
-          // Open the first video in the playlist
-          const firstVideo = playlist.videos[0];
-          const streamUrl = new URL(`/api/videos/${firstVideo.id}/stream`, BACKEND_URL).toString();
-          window.open(streamUrl, '_blank');
+          // Set the playlist and open the first downloadable video
+          setCurrentPlaylist(playlist);
+          const downloadableVideo = playlist.videos.find((v: Video) => v.status === 'DOWNLOADED');
+          if (downloadableVideo) {
+            setCurrentPlayingVideo(downloadableVideo);
+            setIsVideoPlayerModalVisible(true);
+          } else {
+            message.warning('No videos in this playlist are ready to play');
+          }
         } else {
           message.warning('This playlist has no videos');
         }
@@ -571,7 +590,7 @@ export default function HomePage() {
       // width: 400,
       ellipsis: true,
       render: (title: string) => (
-        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', maxWidth: 230, display: 'inline-block', verticalAlign: 'middle' }}>
+        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', display: 'inline-block', verticalAlign: 'middle' }}>
           {title}
         </Typography.Text>
       ),
@@ -621,7 +640,7 @@ export default function HomePage() {
     {
       title: 'Actions',
       key: 'actions',
-      width: '20%',
+      width: 280,
       render: (_: any, record: Video) => {
         const playlistItems = [
           {
@@ -840,7 +859,7 @@ export default function HomePage() {
       key: 'name',
       ellipsis: true,
       render: (name: string) => (
-        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', maxWidth: 200, display: 'inline-block' }}>
+        <Typography.Text ellipsis style={{ fontSize: '16px', fontWeight: '500', display: 'inline-block' }}>
           {name}
         </Typography.Text>
       ),
@@ -851,7 +870,7 @@ export default function HomePage() {
       key: 'description',
       ellipsis: true,
       render: (description: string) => (
-        <Typography.Text ellipsis type="secondary" style={{ maxWidth: 300, display: 'inline-block' }}>
+        <Typography.Text ellipsis type="secondary" style={{ display: 'inline-block' }}>
           {description || 'No description'}
         </Typography.Text>
       ),
@@ -879,7 +898,7 @@ export default function HomePage() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 200,
+      width: 120,
       render: (_: any, record: Playlist) => (
         <Space>
           <Tooltip title="Play Playlist">
@@ -969,7 +988,6 @@ export default function HomePage() {
                         showSizeChanger: true,
                         showTotal: (total) => `Total ${total} items`
                       }}
-                      scroll={{ x: 'max-content' }}
                       loading={isLoading}
                     />
                   )
@@ -1007,7 +1025,6 @@ export default function HomePage() {
                         showSizeChanger: true,
                         showTotal: (total) => `Total ${total} playlists`
                       }}
-                      scroll={{ x: 'max-content' }}
                       loading={isLoading}
                     />
                   </div>
@@ -1060,6 +1077,199 @@ export default function HomePage() {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Video Player Modal */}
+      <Modal
+        title={null}
+        open={isVideoPlayerModalVisible}
+        onCancel={() => {
+          // Stop the video before closing
+          if (videoRef.current) {
+            videoRef.current.pause();
+            videoRef.current.currentTime = 0;
+          }
+          setIsVideoPlayerModalVisible(false);
+          setCurrentPlayingVideo(null);
+          setCurrentPlaylist(null);
+        }}
+        footer={null}
+        width={isMobile ? '95%' : currentPlaylist ? 1200 : 900}
+        style={{ top: 20 }}
+        bodyStyle={{ padding: 0 }}
+      >
+        {currentPlayingVideo && (
+          <div style={{ display: 'flex', height: isMobile ? 'auto' : '600px' }}>
+            {/* Playlist Sidebar */}
+            {currentPlaylist && !isMobile && (
+              <div style={{ 
+                width: '200px', 
+                borderRight: '1px solid #f0f0f0',
+                overflowY: 'auto',
+                backgroundColor: '#fafafa'
+              }}>
+                <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    {currentPlaylist.name}
+                  </Typography.Title>
+                  <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                    {currentPlaylist.videos.length} videos
+                  </Typography.Text>
+                </div>
+                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                  {currentPlaylist.videos.map((video: Video, index: number) => (
+                    <Tooltip
+                      key={video.id}
+                      title={video.title || 'Untitled'}
+                      placement="right"
+                    >
+                      <div
+                        onClick={() => handlePlaylistVideoClick(video)}
+                        style={{
+                          padding: '12px 8px',
+                          cursor: video.status === 'DOWNLOADED' ? 'pointer' : 'not-allowed',
+                          backgroundColor: currentPlayingVideo?.id === video.id ? '#e6f7ff' : 'transparent',
+                          borderBottom: '1px solid #f0f0f0',
+                          opacity: video.status === 'DOWNLOADED' ? 1 : 0.6,
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (video.status === 'DOWNLOADED') {
+                            e.currentTarget.style.backgroundColor = currentPlayingVideo?.id === video.id ? '#e6f7ff' : '#f5f5f5';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (video.status === 'DOWNLOADED') {
+                            e.currentTarget.style.backgroundColor = currentPlayingVideo?.id === video.id ? '#e6f7ff' : 'transparent';
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ 
+                            width: '24px', 
+                            height: '24px', 
+                            backgroundColor: '#f0f0f0',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            color: '#666',
+                            flexShrink: 0
+                          }}>
+                            {index + 1}
+                          </div>
+                          <div style={{ 
+                            width: '50px', 
+                            height: '40px', 
+                            backgroundColor: '#f0f0f0',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            flexShrink: 0
+                          }}>
+                            {video.thumbnail_url ? (
+                              <Image
+                                src={video.thumbnail_url}
+                                alt="thumbnail"
+                                width={50}
+                                height={40}
+                                style={{ objectFit: 'cover' }}
+                                preview={false}
+                              />
+                            ) : (
+                              <div style={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: '#f0f0f0'
+                              }}>
+                                <PictureOutlined style={{ fontSize: '16px', color: '#999' }} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </Tooltip>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Video Player */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              {/* Mobile Playlist Dropdown */}
+              {currentPlaylist && isMobile && (
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+                  <Dropdown
+                    menu={{
+                      items: currentPlaylist.videos.map((video: Video, index: number) => ({
+                        key: video.id,
+                        label: (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '12px', color: '#666', minWidth: '20px' }}>
+                              {index + 1}
+                            </span>
+                            <span style={{ 
+                              fontWeight: currentPlayingVideo?.id === video.id ? 'bold' : 'normal',
+                              color: video.status === 'DOWNLOADED' ? '#000' : '#999'
+                            }}>
+                              {video.title || 'Untitled'}
+                            </span>
+                          </div>
+                        ),
+                        disabled: video.status !== 'DOWNLOADED',
+                        onClick: () => handlePlaylistVideoClick(video)
+                      }))
+                    }}
+                    placement="bottomLeft"
+                    trigger={['click']}
+                  >
+                    <Button style={{ width: '100%', textAlign: 'left' }}>
+                      <span style={{ marginRight: '8px' }}>
+                        {currentPlaylist.name} ({currentPlaylist.videos.length} videos)
+                      </span>
+                      <span style={{ color: '#999' }}>
+                        {currentPlaylist.videos.findIndex((v: Video) => v.id === currentPlayingVideo?.id) + 1} of {currentPlaylist.videos.length}
+                      </span>
+                    </Button>
+                  </Dropdown>
+                </div>
+              )}
+              
+              <video
+                ref={videoRef}
+                src={new URL(`/api/videos/${currentPlayingVideo.id}/stream`, BACKEND_URL).toString()}
+                controls
+                autoPlay
+                style={{ 
+                  width: '100%', 
+                  height: isMobile ? '300px' : '500px',
+                  backgroundColor: '#000'
+                }}
+                onError={(e) => {
+                  console.error('Video playback error:', e);
+                  message.error('Failed to load video. Please try again.');
+                }}
+              />
+              <div style={{ padding: '16px' }}>
+                {!currentPlaylist && (
+                  <Typography.Title level={4} style={{ margin: '0 0 8px 0' }}>
+                    {currentPlayingVideo.title}
+                  </Typography.Title>
+                )}
+                <Typography.Text 
+                  type="secondary" 
+                  style={{ fontSize: '14px', cursor: 'pointer' }}
+                  onClick={() => window.open(currentPlayingVideo.url, '_blank')}
+                >
+                  {currentPlayingVideo.url}
+                </Typography.Text>
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
