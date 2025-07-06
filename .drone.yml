@@ -61,6 +61,21 @@ steps:
         - push
         - tag
 
+
+
+  - name: prepare-ci-dockerfiles
+    image: alpine
+    commands:
+      - cd backend
+      - sed 's|FROM mytube-backend-base:latest|FROM ghcr.io/newcl/mytube-backend-base:latest|' Dockerfile.fastapi > Dockerfile.fastapi.ci
+      - sed 's|FROM mytube-backend-base:latest|FROM ghcr.io/newcl/mytube-backend-base:latest|' Dockerfile.huey > Dockerfile.huey.ci
+    depends_on:
+      - build-backend-base
+    when:
+      event:
+        - push
+        - tag
+
   - name: build-backend-fastapi
     image: plugins/docker
     settings:
@@ -69,7 +84,7 @@ steps:
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
-      dockerfile: backend/Dockerfile.fastapi
+      dockerfile: backend/Dockerfile.fastapi.ci
       context: backend
       username:
         from_secret: DOCKER_USERNAME
@@ -80,13 +95,14 @@ steps:
         - BUILDKIT_INLINE_CACHE=1
       cache_from:
         - ghcr.io/newcl/mytube-backend-fastapi:latest
+        - ghcr.io/newcl/mytube-backend-base:latest
       platform: linux/amd64
       # Resource limits
       memory: 2g
       cpu_quota: 100000
       cpu_period: 100000
     depends_on:
-      - build-backend-base
+      - prepare-ci-dockerfiles
     when:
       event:
         - push
@@ -100,7 +116,7 @@ steps:
       tags:
         - latest
         - ${DRONE_COMMIT_SHA:0:8}
-      dockerfile: backend/Dockerfile.huey
+      dockerfile: backend/Dockerfile.huey.ci
       context: backend
       username:
         from_secret: DOCKER_USERNAME
@@ -111,13 +127,14 @@ steps:
         - BUILDKIT_INLINE_CACHE=1
       cache_from:
         - ghcr.io/newcl/mytube-backend-huey:latest
+        - ghcr.io/newcl/mytube-backend-base:latest
       platform: linux/amd64
       # Resource limits
       memory: 2g
       cpu_quota: 100000
       cpu_period: 100000
     depends_on:
-      - build-backend-base
+      - prepare-ci-dockerfiles
     when:
       event:
         - push
