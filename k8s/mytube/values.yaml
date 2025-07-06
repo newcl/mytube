@@ -11,7 +11,7 @@ frontend:
   replicaCount: 1
   image:
     repository: newcl/mytube-frontend
-    tag: 1667c316
+    tag: d75cdce9
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -40,7 +40,7 @@ fastapi:
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-fastapi
-    tag: 1667c316
+    tag: d75cdce9
     pullPolicy: Always
   service:
     type: ClusterIP
@@ -70,7 +70,7 @@ huey:
   replicaCount: 1
   image:
     repository: newcl/mytube-backend-huey
-    tag: 1667c316
+    tag: d75cdce9
     pullPolicy: Always
   resources:
     limits:
@@ -79,14 +79,11 @@ huey:
     requests:
       cpu: 200m
       memory: 256Mi
-
 # MinIO 
-
 minio:
   endpoint: "minio.elladali.com"
   accessKey: YOUR_KEY
   secretKey: YOUR_SECRET
-
 # Redis configuration
 redis:
   enabled: true
