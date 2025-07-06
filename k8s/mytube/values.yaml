@@ -103,7 +103,7 @@ redis:
 # Backend configuration
 backend:
   postgres:
-    host: "192.168.1.55"
+    host: "192.168.1.50"
     port: "5432"
     database: "mytube"
     user: "mytube"
