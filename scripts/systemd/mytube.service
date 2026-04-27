@@ -1,0 +1,25 @@
+[Unit]
+Description=MyTube download server
+After=network.target
+
+[Service]
+Type=simple
+User=mytube
+Group=mytube
+WorkingDirectory=/opt/mytube
+EnvironmentFile=/opt/mytube/.env
+ExecStart=/opt/mytube/mytube-server
+Restart=on-failure
+RestartSec=5s
+
+# Resource limits (1 CPU / 1 GB RAM VPS)
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/mytube/data
+
+[Install]
+WantedBy=multi-user.target
