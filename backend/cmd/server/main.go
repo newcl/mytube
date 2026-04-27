@@ -36,7 +36,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{cfg.CORSOrigin},
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -48,6 +48,7 @@ func main() {
 		r.Post("/api/jobs", h.PostJob)
 		r.Get("/api/jobs", h.GetJobs)
 		r.Get("/api/jobs/{id}", h.GetJob)
+		r.Delete("/api/jobs/{id}", h.DeleteJob)
 		r.Get("/api/jobs/{id}/log", h.GetJobLog)
 	})
 

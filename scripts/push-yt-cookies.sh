@@ -88,6 +88,20 @@ ssh "$SSH_HOST" '
 '
 
 echo ""
+echo "==> Syncing cookies to mytube service user..."
+ssh "$SSH_HOST" '
+  DEST="/opt/mytube/data/cookies.txt"
+  if sudo test -d "/opt/mytube/data"; then
+    sudo cp "$HOME/.config/yt-dlp/cookies.txt" "$DEST"
+    sudo chown mytube:mytube "$DEST"
+    sudo chmod 600 "$DEST"
+    echo "    Synced to $DEST"
+  else
+    echo "    /opt/mytube/data not found — skipping service user sync"
+  fi
+'
+
+echo ""
 echo "==> Testing yt-dlp can use the cookies (simulate only, no download)..."
 ssh "$SSH_HOST" '
   yt-dlp --simulate --no-playlist \

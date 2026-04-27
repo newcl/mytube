@@ -106,7 +106,14 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	args := []string{
 		"--newline",
 		"--no-colors",
-		"--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+		// Use iOS player client first — less aggressive bot detection, tokens rotate slower.
+		"--extractor-args", "youtube:player_client=ios,web",
+		// Prefer H.264 (avc1) for broadest device compatibility (iOS Safari, older Android).
+		// 1. Best H.264 video (mp4) + m4a audio
+		// 2. Best H.264 video (any container) + any audio
+		// 3. Best combined format that is H.264 (e.g. YouTube format 18 at 360p)
+		// 4. Any mp4 / absolute fallback
+		"--format", "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best[ext=mp4]/best",
 		"--merge-output-format", "mp4",
 		"--write-info-json",
 		"--no-playlist",
@@ -152,7 +159,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 			// --print after_move:filepath outputs just the file path
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, w.downloadDir) && !strings.Contains(trimmed, " ") {
+			if strings.HasPrefix(trimmed, w.downloadDir) {
 				mu.Lock()
 				outputFile = trimmed
 				mu.Unlock()

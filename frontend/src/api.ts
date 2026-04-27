@@ -63,3 +63,8 @@ export async function getJobLog(id: number): Promise<string> {
   const data = await res.json();
   return data.tail ?? '';
 }
+
+export async function deleteJob(id: number): Promise<void> {
+  const res = await apiFetch(`/api/jobs/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`${res.status}`);
+}

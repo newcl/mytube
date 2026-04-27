@@ -167,6 +167,18 @@ func UpdateJobProgress(db *sql.DB, id int64, p *Progress) error {
 	return err
 }
 
+// DeleteJob removes a job row and returns its output_path so the caller can delete the file.
+// Returns sql.ErrNoRows if the job does not exist.
+func DeleteJob(db *sql.DB, id int64) (string, error) {
+	var path sql.NullString
+	err := db.QueryRow(`SELECT output_path FROM jobs WHERE id = ?`, id).Scan(&path)
+	if err != nil {
+		return "", err
+	}
+	_, err = db.Exec(`DELETE FROM jobs WHERE id = ?`, id)
+	return path.String, err
+}
+
 // DequeueJobs returns up to n queued jobs and atomically marks them as downloading.
 func DequeueJobs(db *sql.DB, n int) ([]*Job, error) {
 	rows, err := db.Query(

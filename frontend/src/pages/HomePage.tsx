@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listJobs, createJob, type Job } from '../api';
+import { listJobs, createJob, deleteJob, type Job } from '../api';
 import { fileUrl, getApiBase, getToken, saveSettings } from '../config';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -25,7 +25,29 @@ function statusColor(status: Job['status']): 'default' | 'secondary' | 'destruct
   }
 }
 
-function JobRow({ job, onPlay }: { job: Job; onPlay: (job: Job) => void }) {
+function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => void; onDeleted: (id: number) => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (job.status === 'completed' && !confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteJob(job.id);
+      onDeleted(job.id);
+    } catch {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
+  function handleCopyUrl() {
+    navigator.clipboard.writeText(job.url);
+  }
+
   return (
     <Card className="mb-3">
       <CardContent className="pt-4 pb-4">
@@ -61,20 +83,37 @@ function JobRow({ job, onPlay }: { job: Job; onPlay: (job: Job) => void }) {
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            {job.status === 'completed' && (
-              <div className="flex gap-2 mt-2">
-                <Button size="sm" onClick={() => onPlay(job)}>
-                  ▶ Play
-                </Button>
-                <a
-                  href={fileUrl(job.id)}
-                  download
-                  className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {job.status === 'completed' && (
+                <>
+                  <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
+                  <a
+                    href={fileUrl(job.id)}
+                    download
+                    className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+                  >
+                    ↓ Download
+                  </a>
+                </>
+              )}
+              <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
+                📋 Copy URL
+              </Button>
+              {confirmDelete ? (
+                <>
+                  <Button size="sm" variant="destructive" disabled={deleting} onClick={handleDelete}>
+                    {deleting ? '…' : 'Confirm delete'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
+                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
-                  ↓ Download
-                </a>
-              </div>
-            )}
+                  🗑 Delete
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -83,22 +122,38 @@ function JobRow({ job, onPlay }: { job: Job; onPlay: (job: Job) => void }) {
 }
 
 function PlayerModal({ job, onClose }: { job: Job | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!job) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [job, onClose]);
+
   if (!job) return null;
   return (
-    <Dialog open={!!job} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle className="truncate">{job.title || 'Video'}</DialogTitle>
-        </DialogHeader>
+    <>
+      <div className="fixed inset-0 z-50 bg-black/80" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex flex-col bg-black sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(90vw,56rem)] sm:rounded-lg sm:overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
+          <span className="text-white text-sm font-medium truncate flex-1">{job.title || 'Video'}</span>
+          <button
+            onClick={onClose}
+            className="text-white/60 hover:text-white text-xl leading-none shrink-0"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
         <video
           controls
           autoPlay
-          className="w-full rounded"
+          playsInline
+          className="w-full flex-1 bg-black sm:flex-none sm:aspect-video object-contain"
           src={fileUrl(job.id)}
           key={job.id}
         />
-      </DialogContent>
-    </Dialog>
+      </div>
+    </>
   );
 }
 
@@ -228,7 +283,7 @@ export default function HomePage() {
           </p>
         ) : (
           jobs.map((j) => (
-            <JobRow key={j.id} job={j} onPlay={setPlayingJob} />
+            <JobRow key={j.id} job={j} onPlay={setPlayingJob} onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))} />
           ))
         )}
       </main>

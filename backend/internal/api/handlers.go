@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	dbpkg "github.com/newcl/mytube/backend/internal/db"
@@ -139,6 +142,34 @@ func (h *Handler) GetJobLog(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"tail": tail})
+}
+
+// DeleteJob handles DELETE /api/jobs/{id}.
+// Removes the job record and deletes the downloaded file (+ .info.json sidecar) if present.
+func (h *Handler) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+
+	outputPath, err := dbpkg.DeleteJob(h.DB, id)
+	if err == sql.ErrNoRows {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if outputPath != "" {
+		os.Remove(outputPath)
+		ext := filepath.Ext(outputPath)
+		sidecar := strings.TrimSuffix(outputPath, ext) + ".info.json"
+		os.Remove(sidecar)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- helpers ----------------------------------------------------------------
