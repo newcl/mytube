@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "MyTube",
+  "version": "1.0.0",
+  "description": "Queue the current YouTube tab for download in MyTube",
+  "permissions": ["activeTab", "storage", "notifications"],
+  "action": {
+    "default_title": "Queue in MyTube",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": null
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

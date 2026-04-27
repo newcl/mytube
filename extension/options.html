@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MyTube Options</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 24px; max-width: 400px; }
+    h1 { font-size: 1.25rem; margin-bottom: 16px; }
+    label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 4px; margin-top: 12px; }
+    input { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; box-sizing: border-box; }
+    button { margin-top: 16px; padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    button:hover { background: #1d4ed8; }
+    #status { margin-top: 10px; font-size: 0.85rem; color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h1>MyTube Settings</h1>
+
+  <label for="apiBase">API Base URL</label>
+  <input id="apiBase" type="url" placeholder="https://api.mytube.elladali.com" />
+
+  <label for="token">Token</label>
+  <input id="token" type="password" placeholder="Bearer token" />
+
+  <button id="save">Save</button>
+  <p id="status"></p>
+
+  <script src="options.js"></script>
+</body>
+</html>
