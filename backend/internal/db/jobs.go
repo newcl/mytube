@@ -29,20 +29,20 @@ type Progress struct {
 
 // Job is a download job record.
 type Job struct {
-	ID           int64      `json:"id"`
-	URL          string     `json:"url"`
-	Status       JobStatus  `json:"status"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	Title        string     `json:"title"`
-	Uploader     string     `json:"uploader"`
-	ThumbnailURL string     `json:"thumbnail_url"`
-	Extractor    string     `json:"extractor"`
-	WebpageURL   string     `json:"webpage_url"`
-	OutputPath   string     `json:"output_path"`
-	Error        string     `json:"error"`
-	Progress     *Progress  `json:"progress,omitempty"`
-	LogTail      string     `json:"-"` // served separately
+	ID           int64     `json:"id"`
+	URL          string    `json:"url"`
+	Status       JobStatus `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Title        string    `json:"title"`
+	Uploader     string    `json:"uploader"`
+	ThumbnailURL string    `json:"thumbnail_url"`
+	Extractor    string    `json:"extractor"`
+	WebpageURL   string    `json:"webpage_url"`
+	OutputPath   string    `json:"output_path"`
+	Error        string    `json:"error"`
+	Progress     *Progress `json:"progress,omitempty"`
+	LogTail      string    `json:"-"` // served separately
 }
 
 // CreateJob inserts a new queued job and returns its ID.

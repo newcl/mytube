@@ -15,17 +15,17 @@ import (
 
 // jobResponse is the public JSON shape for a job.
 type jobResponse struct {
-	ID           int64            `json:"id"`
-	URL          string           `json:"url"`
-	Status       dbpkg.JobStatus  `json:"status"`
-	CreatedAt    string           `json:"created_at"`
-	UpdatedAt    string           `json:"updated_at"`
-	Title        string           `json:"title"`
-	Uploader     string           `json:"uploader"`
-	ThumbnailURL string           `json:"thumbnail_url"`
-	OutputPath   string           `json:"output_path"`
-	Error        string           `json:"error"`
-	Progress     *dbpkg.Progress  `json:"progress"`
+	ID           int64           `json:"id"`
+	URL          string          `json:"url"`
+	Status       dbpkg.JobStatus `json:"status"`
+	CreatedAt    string          `json:"created_at"`
+	UpdatedAt    string          `json:"updated_at"`
+	Title        string          `json:"title"`
+	Uploader     string          `json:"uploader"`
+	ThumbnailURL string          `json:"thumbnail_url"`
+	OutputPath   string          `json:"output_path"`
+	Error        string          `json:"error"`
+	Progress     *dbpkg.Progress `json:"progress"`
 }
 
 func toJobResponse(j *dbpkg.Job) jobResponse {
