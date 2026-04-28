@@ -120,8 +120,8 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		"--write-info-json",
 		"--no-playlist",
 		"--output", outputTemplate,
-		"--print", "before_dl:filepath", // emitted once before download starts
-		"--print", "after_move:filepath", // emitted once after completion
+		"--print", "before_dl:filename",  // emitted once before download starts (filename = pre-move path)
+		"--print", "after_move:filepath", // emitted once after completion (filepath = final path)
 	}
 
 	// Cookie source: live browser (Mac, residential IP) or cookie file (VPS).

@@ -123,7 +123,7 @@ function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => vo
   );
 }
 
-function PlayerModal({ job, onClose }: { job: Job | null; onClose: () => void }) {
+function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onClose: () => void }) {
   useEffect(() => {
     if (!job) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -132,6 +132,11 @@ function PlayerModal({ job, onClose }: { job: Job | null; onClose: () => void })
   }, [job, onClose]);
 
   if (!job) return null;
+  // Use live job state so download progress updates while the modal is open
+  const liveJob = jobs.find(j => j.id === job.id) ?? job;
+  const isDownloading = liveJob.status === 'downloading';
+  const pct = liveJob.progress?.percent ?? 0;
+
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/80" onClick={onClose} />
@@ -154,6 +159,16 @@ function PlayerModal({ job, onClose }: { job: Job | null; onClose: () => void })
           src={fileUrl(job.id)}
           key={job.id}
         />
+        {isDownloading && (
+          <div className="px-4 py-2 bg-neutral-900 shrink-0">
+            <div className="flex justify-between text-xs text-white/60 mb-1">
+              <span>Downloading… {pct.toFixed(1)}%</span>
+              <span>{liveJob.progress?.speed ?? ''}{liveJob.progress?.eta ? ` · ETA ${liveJob.progress.eta}` : ''}</span>
+            </div>
+            <Progress value={pct} className="h-1" />
+            <p className="text-xs text-white/40 mt-1">You can only seek within the downloaded portion above.</p>
+          </div>
+        )}
       </div>
     </>
   );
@@ -290,7 +305,7 @@ export default function HomePage() {
         )}
       </main>
 
-      <PlayerModal job={playingJob} onClose={() => setPlayingJob(null)} />
+      <PlayerModal job={playingJob} jobs={jobs} onClose={() => setPlayingJob(null)} />
     </div>
   );
 }
