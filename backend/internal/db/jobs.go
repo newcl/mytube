@@ -107,6 +107,16 @@ func SetJobStatus(db *sql.DB, id int64, status JobStatus) error {
 	return err
 }
 
+// SetJobOutputPath stores the output path early (before download completes)
+// so the file endpoint can serve partial bytes while downloading.
+func SetJobOutputPath(db *sql.DB, id int64, path string) error {
+	_, err := db.Exec(
+		`UPDATE jobs SET output_path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`,
+		path, id,
+	)
+	return err
+}
+
 // SetJobDownloading sets status to downloading.
 func SetJobDownloading(db *sql.DB, id int64) error {
 	return SetJobStatus(db, id, StatusDownloading)

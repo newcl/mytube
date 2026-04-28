@@ -31,7 +31,7 @@ func ServeFile(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if job.Status != dbpkg.StatusCompleted || job.OutputPath == "" {
+		if job.OutputPath == "" {
 			http.Error(w, "not ready", http.StatusNotFound)
 			return
 		}

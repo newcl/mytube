@@ -84,16 +84,18 @@ function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => vo
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
             <div className="flex gap-2 mt-2 flex-wrap">
-              {job.status === 'completed' && (
+              {job.output_path && (
                 <>
                   <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
-                  <a
-                    href={fileUrl(job.id)}
-                    download
-                    className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
-                  >
-                    ↓ Download
-                  </a>
+                  {job.status === 'completed' && (
+                    <a
+                      href={fileUrl(job.id)}
+                      download
+                      className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      ↓ Download
+                    </a>
+                  )}
                 </>
               )}
               <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">

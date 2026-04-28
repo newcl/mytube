@@ -113,17 +113,15 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	args := []string{
 		"--newline",
 		"--no-colors",
-		// Prefer H.264 (avc1) for broadest device compatibility (iOS Safari, older Android).
-		// 1. Best H.264 video (mp4) + m4a audio
-		// 2. Best H.264 video (any container) + any audio
-		// 3. Best combined format that is H.264 (e.g. YouTube format 18 at 360p)
-		// 4. Any mp4 / absolute fallback
-		"--format", "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best[ext=mp4]/best",
-		"--merge-output-format", "mp4",
+		"--no-part", // write directly to final filename so file is readable mid-download
+		// Combined single-stream: no merge step needed, file is playable immediately.
+		// Format 18 = YouTube's 360p H.264+AAC mp4 (always available).
+		"--format", "18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
 		"--write-info-json",
 		"--no-playlist",
 		"--output", outputTemplate,
-		"--print", "after_move:filepath",
+		"--print", "before_dl:filepath", // emitted once before download starts
+		"--print", "after_move:filepath", // emitted once after completion
 	}
 
 	// Cookie source: live browser (Mac, residential IP) or cookie file (VPS).
@@ -157,6 +155,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		mu           sync.Mutex
 		lastProgress time.Time
 		outputFile   string
+		pathWritten  bool // true once before_dl path stored in DB
 	)
 
 	done := make(chan struct{})
@@ -168,12 +167,19 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 			logBuf.WriteString(line)
 			logBuf.WriteByte('\n')
 
-			// --print after_move:filepath outputs just the file path
+			// Both --print before_dl:filepath and after_move:filepath emit an absolute path.
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, w.downloadDir) {
 				mu.Lock()
 				outputFile = trimmed
-				mu.Unlock()
+				if !pathWritten {
+					pathWritten = true
+					mu.Unlock()
+					// Store path early so the file endpoint can serve partial bytes.
+					_ = dbpkg.SetJobOutputPath(w.db, job.ID, trimmed)
+				} else {
+					mu.Unlock()
+				}
 				continue
 			}
 
