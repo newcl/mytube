@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,7 +36,7 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{cfg.CORSOrigin},
+		AllowedOrigins:   cfg.CORSOrigins,
 		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: false,
@@ -66,7 +67,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	w := workerPkg.New(db, cfg.DownloadDir, cfg.Concurrency)
+	w := workerPkg.New(db, cfg.DownloadDir, cfg.Concurrency, cfg.CookieBrowser)
 	go w.Run(ctx)
 
 	srv := &http.Server{
@@ -99,13 +100,14 @@ func main() {
 }
 
 type config struct {
-	Bind        string
-	Token       string
-	DBPath      string
-	DownloadDir string
-	Concurrency int
-	CORSOrigin  string
-	PublicBase  string
+	Bind          string
+	Token         string
+	DBPath        string
+	DownloadDir   string
+	Concurrency   int
+	CORSOrigins   []string
+	PublicBase    string
+	CookieBrowser string // e.g. "chrome" — use --cookies-from-browser instead of a file
 }
 
 func loadConfig() config {
@@ -122,13 +124,14 @@ func loadConfig() config {
 	}
 
 	return config{
-		Bind:        envOr("MYTUBE_BIND", ":8080"),
-		Token:       token,
-		DBPath:      envOr("MYTUBE_DB_PATH", "./data/mytube.db"),
-		DownloadDir: envOr("MYTUBE_DOWNLOAD_DIR", "./data/downloads"),
-		Concurrency: concurrency,
-		CORSOrigin:  envOr("MYTUBE_CORS_ORIGIN", "https://mytube.elladali.com"),
-		PublicBase:  os.Getenv("MYTUBE_PUBLIC_BASE_URL"),
+		Bind:          envOr("MYTUBE_BIND", ":8080"),
+		Token:         token,
+		DBPath:        envOr("MYTUBE_DB_PATH", "./data/mytube.db"),
+		DownloadDir:   envOr("MYTUBE_DOWNLOAD_DIR", "./data/downloads"),
+		Concurrency:   concurrency,
+		CORSOrigins:   strings.Split(envOr("MYTUBE_CORS_ORIGIN", "https://mytube.elladali.com"), ","),
+		PublicBase:    os.Getenv("MYTUBE_PUBLIC_BASE_URL"),
+		CookieBrowser: os.Getenv("MYTUBE_COOKIE_BROWSER"),
 	}
 }
 

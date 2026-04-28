@@ -4,7 +4,7 @@ export function getApiBase(): string {
   return (
     localStorage.getItem('mytube_api_base') ||
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-    'http://localhost:8080'
+    'https://mytubeapi.elladali.com'
   );
 }
 

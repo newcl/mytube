@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,22 +28,28 @@ const (
 
 // Worker polls for queued jobs and runs them concurrently up to concurrency.
 type Worker struct {
-	db          *sql.DB
-	downloadDir string
-	concurrency int
-	sem         chan struct{}
+	db            *sql.DB
+	downloadDir   string
+	concurrency   int
+	cookieBrowser string // if set, use --cookies-from-browser <browser> instead of a cookie file
+	sem           chan struct{}
 }
 
 // New creates a new Worker.
-func New(db *sql.DB, downloadDir string, concurrency int) *Worker {
+func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser string) *Worker {
 	if concurrency < 1 {
 		concurrency = 1
 	}
+	// Resolve to absolute path so prefix checks work regardless of working dir.
+	if abs, err := filepath.Abs(downloadDir); err == nil {
+		downloadDir = abs
+	}
 	return &Worker{
-		db:          db,
-		downloadDir: downloadDir,
-		concurrency: concurrency,
-		sem:         make(chan struct{}, concurrency),
+		db:            db,
+		downloadDir:   downloadDir,
+		concurrency:   concurrency,
+		cookieBrowser: cookieBrowser,
+		sem:           make(chan struct{}, concurrency),
 	}
 }
 
@@ -106,8 +113,6 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	args := []string{
 		"--newline",
 		"--no-colors",
-		// Use iOS player client first — less aggressive bot detection, tokens rotate slower.
-		"--extractor-args", "youtube:player_client=ios,web",
 		// Prefer H.264 (avc1) for broadest device compatibility (iOS Safari, older Android).
 		// 1. Best H.264 video (mp4) + m4a audio
 		// 2. Best H.264 video (any container) + any audio
@@ -119,8 +124,14 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		"--no-playlist",
 		"--output", outputTemplate,
 		"--print", "after_move:filepath",
-		job.URL,
 	}
+
+	// Cookie source: live browser (Mac, residential IP) or cookie file (VPS).
+	if w.cookieBrowser != "" {
+		args = append(args, "--cookies-from-browser", w.cookieBrowser)
+	}
+
+	args = append(args, job.URL)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
@@ -180,8 +191,8 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	}()
 
 	waitErr := cmd.Wait()
+	<-done // drain all output before closing
 	pr.Close()
-	<-done
 
 	mu.Lock()
 	outFile := outputFile
