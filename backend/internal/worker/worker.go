@@ -113,7 +113,9 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	args := []string{
 		"--newline",
 		"--no-colors",
-		"--no-part", // write directly to final filename so file is readable mid-download
+		"--progress",   // force progress output even when stdout is a pipe (non-TTY)
+		"--no-part",    // write directly to final filename so file is readable mid-download
+		"--no-continue", // don't try to resume partial files (avoids HTTP 416 errors)
 		// Combined single-stream: no merge step needed, file is playable immediately.
 		// Format 18 = YouTube's 360p H.264+AAC mp4 (always available).
 		"--format", "18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
