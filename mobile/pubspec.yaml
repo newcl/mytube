@@ -37,6 +37,7 @@ dependencies:
   http: ^1.2.0
   flutter_secure_storage: ^10.0.0
   video_player: ^2.9.2
+  chewie: ^1.8.0
 
 dev_dependencies:
   flutter_test:

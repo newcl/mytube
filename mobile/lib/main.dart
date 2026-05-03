@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:chewie/chewie.dart';
 import 'package:video_player/video_player.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -528,7 +529,7 @@ class VideoPlayerPage extends StatefulWidget {
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late final VideoPlayerController _controller;
-  bool _ready = false;
+  ChewieController? _chewieController;
   String? _error;
 
   @override
@@ -537,8 +538,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
     _controller.initialize().then((_) {
       if (!mounted) return;
-      setState(() => _ready = true);
-      _controller.play();
+      setState(() {
+        _chewieController = ChewieController(
+          videoPlayerController: _controller,
+          autoPlay: true,
+          allowFullScreen: true,
+          allowPlaybackSpeedChanging: true,
+          playbackSpeeds: const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
+          showControlsOnInitialize: true,
+          useRootNavigator: false,
+          materialProgressColors: ChewieProgressColors(
+            playedColor: Colors.red,
+            handleColor: Colors.redAccent,
+            backgroundColor: Colors.grey.shade800,
+            bufferedColor: Colors.grey.shade500,
+          ),
+        );
+      });
     }).catchError((e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -547,6 +563,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   void dispose() {
+    _chewieController?.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -554,62 +571,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+      backgroundColor: Colors.black,
+      appBar: _chewieController == null
+          ? AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis))
+          : null,
       body: _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text('Failed to load video: $_error', textAlign: TextAlign.center),
+          ? Scaffold(
+              appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text('Failed to load video: $_error', textAlign: TextAlign.center),
+                ),
               ),
             )
-          : !_ready
+          : _chewieController == null
               ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    Expanded(
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: _controller.value.aspectRatio,
-                          child: VideoPlayer(_controller),
-                        ),
-                      ),
-                    ),
-                    SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  if (_controller.value.isPlaying) {
-                                    _controller.pause();
-                                  } else {
-                                    _controller.play();
-                                  }
-                                });
-                              },
-                              icon: Icon(
-                                _controller.value.isPlaying
-                                    ? Icons.pause_circle_filled
-                                    : Icons.play_circle_fill,
-                                size: 34,
-                              ),
-                            ),
-                            Expanded(
-                              child: VideoProgressIndicator(
-                                _controller,
-                                allowScrubbing: true,
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              : Chewie(controller: _chewieController!),
     );
   }
 }
