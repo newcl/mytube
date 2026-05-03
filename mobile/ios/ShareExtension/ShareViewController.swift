@@ -133,15 +133,12 @@ class ShareViewController: UIViewController {
   // ── Submit to backend ──────────────────────────────────────────────────
   private func submit(url: String) {
     let defaults = UserDefaults(suiteName: kAppGroup)
-    let serverUrl = keychainRead(key: kServerUrl) ?? defaults?.string(forKey: kServerUrl) ?? ""
-    let token     = keychainRead(key: kBearerToken) ?? defaults?.string(forKey: kBearerToken) ?? ""
-
-    guard !serverUrl.isEmpty, !token.isEmpty else {
-      // Store URL for main app to pick up, then notify user to configure
-      defaults?.set(url, forKey: kPendingUrl)
-      finish(success: true, message: "Saved! Open MyTube to configure server settings.")
-      return
-    }
+    let serverUrl = keychainRead(key: kServerUrl)
+      ?? defaults?.string(forKey: kServerUrl)
+      ?? "https://mytubeapi.elladali.com"
+    let token = keychainRead(key: kBearerToken)
+      ?? defaults?.string(forKey: kBearerToken)
+      ?? "a86ff4614dc198cdaaa004e344e2ea3656a88fbd07959ead78e7c496f426cfc4"
 
     guard let endpoint = URL(string: "\(serverUrl)/api/jobs") else {
       finish(success: false, message: "Invalid server URL.")
@@ -181,12 +178,15 @@ class ShareViewController: UIViewController {
     }
   }
 
-  // ── Keychain helper (reads from shared access group) ───────────────────
+  // ── Keychain helper ────────────────────────────────────────────────────
+  // flutter_secure_storage with groupId writes to kSecAttrAccessGroup.
+  // The access group must match the entitlement (team prefix is added by OS).
   private func keychainRead(key: String) -> String? {
     let query: [CFString: Any] = [
       kSecClass:           kSecClassGenericPassword,
+      kSecAttrService:     "flutter_secure_storage_service",
       kSecAttrAccount:     key,
-      kSecAttrAccessGroup: "com.mytube.mobile",
+      kSecAttrAccessGroup: "com.mytube.mytubeMobile",
       kSecReturnData:      true,
       kSecMatchLimit:      kSecMatchLimitOne,
     ]

@@ -138,6 +138,7 @@ class _MainShellState extends State<MainShell> {
   final _storage = const FlutterSecureStorage(
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock,
+      groupId: 'com.mytube.mytubeMobile',
     ),
   );
 
