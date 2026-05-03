@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:chewie/chewie.dart';
 import 'package:video_player/video_player.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -529,8 +528,15 @@ class VideoPlayerPage extends StatefulWidget {
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late final VideoPlayerController _controller;
-  ChewieController? _chewieController;
+  bool _ready = false;
   String? _error;
+  double _speed = 1.0;
+
+  static const List<double> _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+  static final Map<double, String> _speedLabels = {
+    0.5: '0.5×', 0.75: '0.75×', 1.0: '1×',
+    1.25: '1.25×', 1.5: '1.5×', 2.0: '2×',
+  };
 
   @override
   void initState() {
@@ -538,56 +544,182 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
     _controller.initialize().then((_) {
       if (!mounted) return;
-      setState(() {
-        _chewieController = ChewieController(
-          videoPlayerController: _controller,
-          autoPlay: true,
-          allowFullScreen: true,
-          allowPlaybackSpeedChanging: true,
-          playbackSpeeds: const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
-          showControlsOnInitialize: true,
-          useRootNavigator: false,
-          materialProgressColors: ChewieProgressColors(
-            playedColor: Colors.red,
-            handleColor: Colors.redAccent,
-            backgroundColor: Colors.grey.shade800,
-            bufferedColor: Colors.grey.shade500,
-          ),
-        );
-      });
+      setState(() => _ready = true);
+      _controller.play();
+      _controller.addListener(_tick);
     }).catchError((e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
     });
   }
 
+  void _tick() { if (mounted) setState(() {}); }
+
   @override
   void dispose() {
-    _chewieController?.dispose();
+    _controller.removeListener(_tick);
     _controller.dispose();
     super.dispose();
   }
 
+  String _fmt(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  void _cycleSpeed() {
+    final newSpeed = _speeds[(_speeds.indexOf(_speed) + 1) % _speeds.length];
+    setState(() => _speed = newSpeed);
+    _controller.setPlaybackSpeed(newSpeed);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('Failed to load video:\n$_error', textAlign: TextAlign.center),
+          ),
+        ),
+      );
+    }
+    if (!_ready) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final pos = _controller.value.position;
+    final dur = _controller.value.duration;
+    final progress = dur.inMilliseconds > 0
+        ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+    final isPlaying = _controller.value.isPlaying;
+
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: _chewieController == null
-          ? AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis))
-          : null,
-      body: _error != null
-          ? Scaffold(
-              appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text('Failed to load video: $_error', textAlign: TextAlign.center),
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(widget.title, overflow: TextOverflow.ellipsis),
+      ),
+      body: Stack(
+        children: [
+          // Video – centered, natural aspect ratio
+          Center(
+            child: AspectRatio(
+              aspectRatio: _controller.value.aspectRatio,
+              child: VideoPlayer(_controller),
+            ),
+          ),
+          // Controls – always visible, gradient backdrop
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Color(0xEE000000), Colors.transparent],
                 ),
               ),
-            )
-          : _chewieController == null
-              ? const Center(child: CircularProgressIndicator())
-              : Chewie(controller: _chewieController!),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 28, 16, 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Seek slider
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 22),
+                          activeTrackColor: Colors.red,
+                          inactiveTrackColor: Colors.white30,
+                          thumbColor: Colors.white,
+                          overlayColor: Colors.white24,
+                        ),
+                        child: Slider(
+                          value: progress,
+                          onChanged: (v) => _controller.seekTo(
+                              Duration(milliseconds: (v * dur.inMilliseconds).round())),
+                        ),
+                      ),
+                      // Timestamps
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(_fmt(pos),
+                                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                            Text(_fmt(dur),
+                                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // Buttons row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          // Playback speed
+                          TextButton(
+                            onPressed: _cycleSpeed,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(56, 56),
+                            ),
+                            child: Text(
+                              _speedLabels[_speed] ?? '${_speed}×',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          // Skip back 15 s
+                          IconButton(
+                            iconSize: 40,
+                            color: Colors.white,
+                            onPressed: () => _controller.seekTo(Duration(
+                                seconds: (pos.inSeconds - 15).clamp(0, dur.inSeconds))),
+                            icon: const Icon(Icons.replay_10),
+                          ),
+                          // Play / Pause
+                          IconButton(
+                            iconSize: 68,
+                            color: Colors.white,
+                            onPressed: () =>
+                                isPlaying ? _controller.pause() : _controller.play(),
+                            icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
+                          ),
+                          // Skip forward 15 s
+                          IconButton(
+                            iconSize: 40,
+                            color: Colors.white,
+                            onPressed: () => _controller.seekTo(Duration(
+                                seconds: (pos.inSeconds + 15).clamp(0, dur.inSeconds))),
+                            icon: const Icon(Icons.forward_10),
+                          ),
+                          // Spacer (balances the speed button)
+                          const SizedBox(width: 56),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
