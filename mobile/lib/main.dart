@@ -472,14 +472,36 @@ class _JobCard extends StatelessWidget {
                     ],
                     if (job.status == 'completed') ...[
                       const SizedBox(height: 8),
-                      FilledButton.icon(
-                        onPressed: onPlay,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Play'),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          minimumSize: const Size(0, 36),
-                        ),
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            onPressed: onPlay,
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('Play'),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              minimumSize: const Size(0, 36),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.outlined(
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: job.url));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('URL copied'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.link, size: 20),
+                            tooltip: 'Copy URL',
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(36, 36),
+                              padding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ],
@@ -534,6 +556,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   double _speed = 1.0;
   bool _wasPlayingBeforeBackground = false;
 
+  // Now Playing / lock-screen controls.
+  static const _nowPlayingChannel = MethodChannel('com.mytube/nowPlaying');
+  bool _lastIsPlaying = false;
+  Duration _lastReportedPosition = Duration.zero;
+
   static const List<double> _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
   static final Map<double, String> _speedLabels = {
     0.5: '0.5×', 0.75: '0.75×', 1.0: '1×',
@@ -551,6 +578,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         mixWithOthers: false,
       ),
     );
+    _nowPlayingChannel.setMethodCallHandler(_handleRemoteCommand);
     _controller.initialize().then((_) {
       if (!mounted) return;
       setState(() => _ready = true);
@@ -589,12 +617,59 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
-  void _tick() { if (mounted) setState(() {}); }
+  void _tick() {
+    if (!mounted) return;
+    setState(() {});
+    _updateNowPlaying();
+  }
+
+  void _updateNowPlaying() {
+    if (!_ready) return;
+    final pos = _controller.value.position;
+    final isPlaying = _controller.value.isPlaying;
+    // Throttle: only push an update when position moves ≥1 s or play state changes.
+    if ((pos - _lastReportedPosition).abs() < const Duration(milliseconds: 950) &&
+        isPlaying == _lastIsPlaying) return;
+    _lastReportedPosition = pos;
+    _lastIsPlaying = isPlaying;
+    final title = widget.job.title.isNotEmpty
+        ? widget.job.title
+        : 'Video #${widget.job.id}';
+    _nowPlayingChannel.invokeMethod<void>('update', {
+      'title': title,
+      'position': pos.inMilliseconds / 1000.0,
+      'duration': _controller.value.duration.inMilliseconds / 1000.0,
+      'isPlaying': isPlaying,
+    });
+  }
+
+  Future<void> _handleRemoteCommand(MethodCall call) async {
+    switch (call.method) {
+      case 'play':
+        _wasPlayingBeforeBackground = true;
+        await _controller.play();
+      case 'pause':
+        _wasPlayingBeforeBackground = false;
+        await _controller.pause();
+      case 'togglePlayPause':
+        if (_controller.value.isPlaying) {
+          _wasPlayingBeforeBackground = false;
+          await _controller.pause();
+        } else {
+          _wasPlayingBeforeBackground = true;
+          await _controller.play();
+        }
+      case 'seekTo':
+        final secs = (call.arguments as num).toDouble();
+        await _controller.seekTo(Duration(milliseconds: (secs * 1000).round()));
+    }
+  }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_tick);
+    _nowPlayingChannel.invokeMethod<void>('clear');
     _controller.dispose();
     super.dispose();
   }
