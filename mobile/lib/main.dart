@@ -302,7 +302,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => VideoPlayerPage(
-          title: job.title.isNotEmpty ? job.title : 'Video #${job.id}',
+          job: job,
           videoUrl: widget.api.fileUrl(job.id),
         ),
       ),
@@ -518,19 +518,21 @@ class _StatusBadge extends StatelessWidget {
 }
 
 class VideoPlayerPage extends StatefulWidget {
-  final String title;
+  final Job job;
   final String videoUrl;
-  const VideoPlayerPage({super.key, required this.title, required this.videoUrl});
+  const VideoPlayerPage({super.key, required this.job, required this.videoUrl});
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
 }
 
-class _VideoPlayerPageState extends State<VideoPlayerPage> {
+class _VideoPlayerPageState extends State<VideoPlayerPage>
+    with WidgetsBindingObserver {
   late final VideoPlayerController _controller;
   bool _ready = false;
   String? _error;
   double _speed = 1.0;
+  bool _wasPlayingBeforeBackground = false;
 
   static const List<double> _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
   static final Map<double, String> _speedLabels = {
@@ -541,7 +543,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    WidgetsBinding.instance.addObserver(this);
+    _controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.videoUrl),
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+        mixWithOthers: false,
+      ),
+    );
     _controller.initialize().then((_) {
       if (!mounted) return;
       setState(() => _ready = true);
@@ -553,10 +562,38 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive) {
+      // Capture play state before the system has a chance to auto-pause the
+      // AVPlayer (which iOS does for video content when entering background).
+      _wasPlayingBeforeBackground = _controller.value.isPlaying;
+    } else if (state == AppLifecycleState.paused) {
+      // iOS automatically sets AVPlayer rate → 0 for video content when the app
+      // enters background, even with UIBackgroundModes:audio configured. We
+      // override this by re-issuing play immediately and again after a short
+      // delay (to win any race against the system auto-pause).
+      if (_wasPlayingBeforeBackground) {
+        _controller.play();
+        Future<void>.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _wasPlayingBeforeBackground) {
+            _controller.play();
+          }
+        });
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // Catch anything that slipped through while backgrounded.
+      if (_wasPlayingBeforeBackground && !_controller.value.isPlaying) {
+        _controller.play();
+      }
+    }
+  }
+
   void _tick() { if (mounted) setState(() {}); }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_tick);
     _controller.dispose();
     super.dispose();
@@ -575,22 +612,78 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _controller.setPlaybackSpeed(newSpeed);
   }
 
+  void _showInfo() {
+    final title = widget.job.title.isNotEmpty ? widget.job.title : 'Video #${widget.job.id}';
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 16),
+                _InfoRow(label: 'Video ID', value: widget.job.id.toString()),
+                _InfoRow(label: 'Status', value: widget.job.status),
+                if (widget.job.uploader.isNotEmpty)
+                  _InfoRow(label: 'Uploader', value: widget.job.uploader),
+                if (widget.job.createdAt.isNotEmpty)
+                  _InfoRow(label: 'Created', value: widget.job.createdAt),
+                if (widget.job.url.isNotEmpty)
+                  _InfoRow(label: 'Source URL', value: widget.job.url),
+                _InfoRow(label: 'File URL', value: widget.videoUrl),
+                if (widget.job.thumbnailUrl.isNotEmpty)
+                  _InfoRow(label: 'Thumbnail', value: widget.job.thumbnailUrl),
+                if (widget.job.error.isNotEmpty)
+                  _InfoRow(label: 'Error', value: widget.job.error),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final title = widget.job.title.isNotEmpty ? widget.job.title : 'Video #${widget.job.id}';
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: Text(title, overflow: TextOverflow.ellipsis),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Text('Failed to load video:\n$_error', textAlign: TextAlign.center),
+            child: Text(
+              'Failed to load video:\n$_error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ),
       );
     }
     if (!_ready) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title, overflow: TextOverflow.ellipsis)),
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: Text(title, overflow: TextOverflow.ellipsis),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -606,118 +699,140 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        title: Text(title, overflow: TextOverflow.ellipsis),
         foregroundColor: Colors.white,
-        title: Text(widget.title, overflow: TextOverflow.ellipsis),
+        surfaceTintColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            tooltip: 'Video info',
+            onPressed: _showInfo,
+            icon: const Icon(Icons.info_outline),
+          ),
+        ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          // Video – centered, natural aspect ratio
-          Center(
-            child: AspectRatio(
-              aspectRatio: _controller.value.aspectRatio,
-              child: VideoPlayer(_controller),
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              ),
             ),
           ),
-          // Controls – always visible, gradient backdrop
-          Positioned(
-            left: 0, right: 0, bottom: 0,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [Color(0xEE000000), Colors.transparent],
-                ),
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Color(0xEE000000), Colors.transparent],
               ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 28, 16, 8),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Seek slider
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 3,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 22),
-                          activeTrackColor: Colors.red,
-                          inactiveTrackColor: Colors.white30,
-                          thumbColor: Colors.white,
-                          overlayColor: Colors.white24,
-                        ),
-                        child: Slider(
-                          value: progress,
-                          onChanged: (v) => _controller.seekTo(
-                              Duration(milliseconds: (v * dur.inMilliseconds).round())),
-                        ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 22),
+                        activeTrackColor: Colors.red,
+                        inactiveTrackColor: Colors.white30,
+                        thumbColor: Colors.white,
+                        overlayColor: Colors.white24,
                       ),
-                      // Timestamps
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(_fmt(pos),
-                                style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                            Text(_fmt(dur),
-                                style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          ],
-                        ),
+                      child: Slider(
+                        value: progress,
+                        onChanged: (v) => _controller.seekTo(
+                            Duration(milliseconds: (v * dur.inMilliseconds).round())),
                       ),
-                      const SizedBox(height: 4),
-                      // Buttons row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Playback speed
-                          TextButton(
-                            onPressed: _cycleSpeed,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(56, 56),
-                            ),
-                            child: Text(
-                              _speedLabels[_speed] ?? '${_speed}×',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          // Skip back 15 s
-                          IconButton(
-                            iconSize: 40,
-                            color: Colors.white,
-                            onPressed: () => _controller.seekTo(Duration(
-                                seconds: (pos.inSeconds - 15).clamp(0, dur.inSeconds))),
-                            icon: const Icon(Icons.replay_10),
-                          ),
-                          // Play / Pause
-                          IconButton(
-                            iconSize: 68,
-                            color: Colors.white,
-                            onPressed: () =>
-                                isPlaying ? _controller.pause() : _controller.play(),
-                            icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
-                          ),
-                          // Skip forward 15 s
-                          IconButton(
-                            iconSize: 40,
-                            color: Colors.white,
-                            onPressed: () => _controller.seekTo(Duration(
-                                seconds: (pos.inSeconds + 15).clamp(0, dur.inSeconds))),
-                            icon: const Icon(Icons.forward_10),
-                          ),
-                          // Spacer (balances the speed button)
-                          const SizedBox(width: 56),
+                          Text(_fmt(pos),
+                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          Text(_fmt(dur),
+                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        TextButton(
+                          onPressed: _cycleSpeed,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(56, 56),
+                          ),
+                          child: Text(
+                            _speedLabels[_speed] ?? '${_speed}×',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        IconButton(
+                          iconSize: 40,
+                          color: Colors.white,
+                          onPressed: () => _controller.seekTo(Duration(
+                              seconds: (pos.inSeconds - 10).clamp(0, dur.inSeconds))),
+                          icon: const Icon(Icons.replay_10),
+                        ),
+                        IconButton(
+                          iconSize: 68,
+                          color: Colors.white,
+                          onPressed: () =>
+                              isPlaying ? _controller.pause() : _controller.play(),
+                          icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
+                        ),
+                        IconButton(
+                          iconSize: 40,
+                          color: Colors.white,
+                          onPressed: () => _controller.seekTo(Duration(
+                              seconds: (pos.inSeconds + 10).clamp(0, dur.inSeconds))),
+                          icon: const Icon(Icons.forward_10),
+                        ),
+                        const SizedBox(width: 56),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                  ],
                 ),
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+}
+
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _InfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 4),
+          SelectableText(value, style: Theme.of(context).textTheme.bodyMedium),
         ],
       ),
     );
