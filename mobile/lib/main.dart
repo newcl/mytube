@@ -245,6 +245,67 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   String? _error;
   Timer? _pollTimer;
 
+  // Bulk-select state
+  bool _selectMode = false;
+  final Set<int> _selected = {};
+
+  void _enterSelectMode(int id) {
+    setState(() {
+      _selectMode = true;
+      _selected.add(id);
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selected.clear();
+    });
+  }
+
+  void _toggleSelect(int id) {
+    setState(() {
+      if (_selected.contains(id)) {
+        _selected.remove(id);
+        if (_selected.isEmpty) _selectMode = false;
+      } else {
+        _selected.add(id);
+      }
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final ids = Set<int>.from(_selected);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete selected?'),
+        content: Text('Delete ${ids.length} video${ids.length == 1 ? '' : 's'} and their files?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _exitSelectMode();
+    int failed = 0;
+    for (final id in ids) {
+      try {
+        await widget.api.deleteJob(id);
+        if (mounted) setState(() => _jobs.removeWhere((j) => j.id == id));
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (failed > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$failed deletion(s) failed'),
+        backgroundColor: Colors.red,
+      ));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -311,13 +372,41 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final allSelected = _jobs.isNotEmpty && _selected.length == _jobs.length;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('MyTube'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
-        ],
-      ),
+      appBar: _selectMode
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _exitSelectMode,
+              ),
+              title: Text('${_selected.length} selected'),
+              actions: [
+                IconButton(
+                  tooltip: allSelected ? 'Deselect all' : 'Select all',
+                  icon: Icon(allSelected
+                      ? Icons.deselect
+                      : Icons.select_all),
+                  onPressed: () => setState(() {
+                    if (allSelected) {
+                      _selected.clear();
+                      _selectMode = false;
+                    } else {
+                      _selected.addAll(_jobs.map((j) => j.id));
+                    }
+                  }),
+                ),
+                IconButton(
+                  tooltip: 'Delete selected',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _selected.isEmpty ? null : _deleteSelected,
+                ),
+              ],
+            )
+          : AppBar(
+              title: const Text('MyTube'),
+              actions: const [],
+            ),
       body: _loading && _jobs.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : _error != null && _jobs.isEmpty
@@ -332,7 +421,11 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                         itemBuilder: (_, i) => _JobCard(
                           job: _jobs[i],
                           onDelete: () => _delete(_jobs[i]),
-                          onPlay: () => _play(_jobs[i]),
+                          onPlay: _selectMode ? null : () => _play(_jobs[i]),
+                          selectMode: _selectMode,
+                          selected: _selected.contains(_jobs[i].id),
+                          onLongPress: () => _enterSelectMode(_jobs[i].id),
+                          onToggleSelect: () => _toggleSelect(_jobs[i].id),
                         ),
                       ),
                     ),
@@ -379,8 +472,20 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
 class _JobCard extends StatelessWidget {
   final Job job;
   final VoidCallback onDelete;
-  final VoidCallback onPlay;
-  const _JobCard({required this.job, required this.onDelete, required this.onPlay});
+  final VoidCallback? onPlay;
+  final bool selectMode;
+  final bool selected;
+  final VoidCallback onLongPress;
+  final VoidCallback onToggleSelect;
+  const _JobCard({
+    required this.job,
+    required this.onDelete,
+    required this.onPlay,
+    required this.selectMode,
+    required this.selected,
+    required this.onLongPress,
+    required this.onToggleSelect,
+  });
 
   Color _statusColor(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -394,44 +499,34 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dismissible(
-      key: ValueKey(job.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: Theme.of(context).colorScheme.error,
-        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-      ),
-      confirmDismiss: (_) async {
-        return await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Delete?'),
-                content: Text('Remove "${job.title.isNotEmpty ? job.title : job.url}" and its downloaded file?'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-                ],
-              ),
-            ) ?? false;
-      },
-      onDismissed: (_) => onDelete(),
-      child: Card(
+    final card = Card(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        color: selected
+            ? Theme.of(context).colorScheme.primaryContainer.withAlpha(120)
+            : null,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: job.thumbnailUrl.isNotEmpty
-                    ? Image.network(job.thumbnailUrl, width: 90, height: 60, fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _placeholder())
-                    : _placeholder(),
-              ),
-              const SizedBox(width: 12),
+              // Checkbox shown in select mode, thumbnail otherwise
+              if (selectMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, top: 8),
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: (_) => onToggleSelect(),
+                  ),
+                )
+              else
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: job.thumbnailUrl.isNotEmpty
+                      ? Image.network(job.thumbnailUrl, width: 90, height: 60, fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => _placeholder())
+                      : _placeholder(),
+                ),
+              if (!selectMode) const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,7 +565,7 @@ class _JobCard extends StatelessWidget {
                           style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
                           maxLines: 2, overflow: TextOverflow.ellipsis),
                     ],
-                    if (job.status == 'completed') ...[
+                    if (job.status == 'completed' && !selectMode) ...[
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -510,6 +605,44 @@ class _JobCard extends StatelessWidget {
             ],
           ),
         ),
+      );
+
+    // In select mode: tap toggles selection, no swipe-to-dismiss
+    if (selectMode) {
+      return GestureDetector(
+        onTap: onToggleSelect,
+        onLongPress: onLongPress,
+        child: card,
+      );
+    }
+
+    // Normal mode: swipe to delete, long-press to enter select mode
+    return Dismissible(
+      key: ValueKey(job.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Theme.of(context).colorScheme.error,
+        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+      ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Delete?'),
+                content: Text('Remove "${job.title.isNotEmpty ? job.title : job.url}" and its downloaded file?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                ],
+              ),
+            ) ?? false;
+      },
+      onDismissed: (_) => onDelete(),
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: card,
       ),
     );
   }
@@ -671,6 +804,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     _controller.removeListener(_tick);
     _nowPlayingChannel.invokeMethod<void>('clear');
     _controller.dispose();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
@@ -724,9 +858,110 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
   }
 
+  Widget _buildControls(
+      Duration pos, Duration dur, double progress, bool isPlaying) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xEE000000), Colors.transparent],
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 22),
+                  activeTrackColor: Colors.red,
+                  inactiveTrackColor: Colors.white30,
+                  thumbColor: Colors.white,
+                  overlayColor: Colors.white24,
+                ),
+                child: Slider(
+                  value: progress,
+                  onChanged: (v) => _controller.seekTo(Duration(
+                      milliseconds: (v * dur.inMilliseconds).round())),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_fmt(pos),
+                        style:
+                            const TextStyle(color: Colors.white70, fontSize: 12)),
+                    Text(_fmt(dur),
+                        style:
+                            const TextStyle(color: Colors.white70, fontSize: 12)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: _cycleSpeed,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(56, 56),
+                    ),
+                    child: Text(
+                      _speedLabels[_speed] ?? '${_speed}×',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    iconSize: 40,
+                    color: Colors.white,
+                    onPressed: () => _controller.seekTo(Duration(
+                        seconds:
+                            (pos.inSeconds - 10).clamp(0, dur.inSeconds))),
+                    icon: const Icon(Icons.replay_10),
+                  ),
+                  IconButton(
+                    iconSize: 68,
+                    color: Colors.white,
+                    onPressed: () =>
+                        isPlaying ? _controller.pause() : _controller.play(),
+                    icon:
+                        Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
+                  ),
+                  IconButton(
+                    iconSize: 40,
+                    color: Colors.white,
+                    onPressed: () => _controller.seekTo(Duration(
+                        seconds:
+                            (pos.inSeconds + 10).clamp(0, dur.inSeconds))),
+                    icon: const Icon(Icons.forward_10),
+                  ),
+                  const SizedBox(width: 56),
+                ],
+              ),
+              const SizedBox(height: 4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final title = widget.job.title.isNotEmpty ? widget.job.title : 'Video #${widget.job.id}';
+    final title =
+        widget.job.title.isNotEmpty ? widget.job.title : 'Video #${widget.job.id}';
     if (_error != null) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -770,123 +1005,96 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         : 0.0;
     final isPlaying = _controller.value.isPlaying;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Text(title, overflow: TextOverflow.ellipsis),
-        foregroundColor: Colors.white,
-        surfaceTintColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            tooltip: 'Video info',
-            onPressed: _showInfo,
-            icon: const Icon(Icons.info_outline),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
-              ),
-            ),
-          ),
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [Color(0xEE000000), Colors.transparent],
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 22),
-                        activeTrackColor: Colors.red,
-                        inactiveTrackColor: Colors.white30,
-                        thumbColor: Colors.white,
-                        overlayColor: Colors.white24,
-                      ),
-                      child: Slider(
-                        value: progress,
-                        onChanged: (v) => _controller.seekTo(
-                            Duration(milliseconds: (v * dur.inMilliseconds).round())),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(_fmt(pos),
-                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          Text(_fmt(dur),
-                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return OrientationBuilder(
+      builder: (context, orientation) {
+        final isLandscape = orientation == Orientation.landscape;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          SystemChrome.setEnabledSystemUIMode(
+            isLandscape
+                ? SystemUiMode.immersiveSticky
+                : SystemUiMode.edgeToEdge,
+          );
+        });
+
+        if (isLandscape) {
+          // Landscape: video fills the full screen, controls overlaid at bottom.
+          return Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: _controller.value.aspectRatio,
+                    child: VideoPlayer(_controller),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildControls(pos, dur, progress, isPlaying),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: SafeArea(
+                    child: Row(
                       children: [
-                        TextButton(
-                          onPressed: _cycleSpeed,
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(56, 56),
-                          ),
-                          child: Text(
-                            _speedLabels[_speed] ?? '${_speed}×',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back,
+                              color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
                         ),
                         IconButton(
-                          iconSize: 40,
-                          color: Colors.white,
-                          onPressed: () => _controller.seekTo(Duration(
-                              seconds: (pos.inSeconds - 10).clamp(0, dur.inSeconds))),
-                          icon: const Icon(Icons.replay_10),
+                          tooltip: 'Video info',
+                          icon: const Icon(Icons.info_outline,
+                              color: Colors.white),
+                          onPressed: _showInfo,
                         ),
-                        IconButton(
-                          iconSize: 68,
-                          color: Colors.white,
-                          onPressed: () =>
-                              isPlaying ? _controller.pause() : _controller.play(),
-                          icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
-                        ),
-                        IconButton(
-                          iconSize: 40,
-                          color: Colors.white,
-                          onPressed: () => _controller.seekTo(Duration(
-                              seconds: (pos.inSeconds + 10).clamp(0, dur.inSeconds))),
-                          icon: const Icon(Icons.forward_10),
-                        ),
-                        const SizedBox(width: 56),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                  ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Portrait: standard layout with AppBar.
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            title: Text(title, overflow: TextOverflow.ellipsis),
+            foregroundColor: Colors.white,
+            surfaceTintColor: Colors.black,
+            iconTheme: const IconThemeData(color: Colors.white),
+            actionsIconTheme: const IconThemeData(color: Colors.white),
+            actions: [
+              IconButton(
+                tooltip: 'Video info',
+                onPressed: _showInfo,
+                icon: const Icon(Icons.info_outline),
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: _controller.value.aspectRatio,
+                    child: VideoPlayer(_controller),
+                  ),
                 ),
               ),
-            ),
+              _buildControls(pos, dur, progress, isPlaying),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 

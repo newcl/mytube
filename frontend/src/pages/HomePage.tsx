@@ -25,7 +25,17 @@ function statusColor(status: Job['status']): 'default' | 'secondary' | 'destruct
   }
 }
 
-function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => void; onDeleted: (id: number) => void }) {
+function JobRow({
+  job, onPlay, onDeleted,
+  selectMode = false, selected = false, onToggleSelect,
+}: {
+  job: Job;
+  onPlay: (job: Job) => void;
+  onDeleted: (id: number) => void;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -49,9 +59,22 @@ function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => vo
   }
 
   return (
-    <Card className="mb-3">
+    <Card
+      className={`mb-3 transition-colors ${
+        selectMode ? 'cursor-pointer select-none' : ''
+      } ${selected ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+      onClick={selectMode ? onToggleSelect : undefined}
+    >
       <CardContent className="pt-4 pb-4">
         <div className="flex gap-3 items-start">
+          {selectMode && (
+            <input
+              type="checkbox"
+              checked={selected}
+              readOnly
+              className="mt-1 w-4 h-4 flex-shrink-0 cursor-pointer"
+            />
+          )}
           {job.thumbnail_url && (
             <img
               src={job.thumbnail_url}
@@ -83,7 +106,7 @@ function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => vo
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            <div className="flex gap-2 mt-2 flex-wrap">
+            {!selectMode && <div className="flex gap-2 mt-2 flex-wrap">
               {job.output_path && (
                 <>
                   <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
@@ -115,7 +138,7 @@ function JobRow({ job, onPlay, onDeleted }: { job: Job; onPlay: (job: Job) => vo
                   🗑 Delete
                 </Button>
               )}
-            </div>
+            </div>}
           </div>
         </div>
       </CardContent>
@@ -229,6 +252,14 @@ export default function HomePage() {
   const [playingJob, setPlayingJob] = useState<Job | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Bulk select
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Delete before date
+  const [beforeDate, setBeforeDate] = useState('');
+
   const fetchJobs = useCallback(async () => {
     try {
       const data = await listJobs(100);
@@ -245,6 +276,46 @@ export default function HomePage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchJobs]);
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function handleToggleSelect(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} selected video${selected.size !== 1 ? 's' : ''}?`)) return;
+    setBulkDeleting(true);
+    const ids = Array.from(selected);
+    await Promise.all(ids.map(id => deleteJob(id).catch(() => {})));
+    setJobs(prev => prev.filter(j => !ids.includes(j.id)));
+    exitSelectMode();
+    setBulkDeleting(false);
+  }
+
+  async function handleDeleteBefore() {
+    if (!beforeDate) return;
+    // Add 1 day to make the date inclusive (delete on or before the chosen day)
+    const cutoff = new Date(beforeDate);
+    cutoff.setDate(cutoff.getDate() + 1);
+    const toDelete = jobs.filter(j => new Date(j.created_at) < cutoff);
+    if (toDelete.length === 0) {
+      alert('No videos found on or before that date.');
+      return;
+    }
+    if (!confirm(`Delete ${toDelete.length} video${toDelete.length !== 1 ? 's' : ''} created on or before ${beforeDate}?`)) return;
+    await Promise.all(toDelete.map(j => deleteJob(j.id).catch(() => {})));
+    setJobs(prev => prev.filter(j => !toDelete.some(d => d.id === j.id)));
+    setBeforeDate('');
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -293,14 +364,69 @@ export default function HomePage() {
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
+        {/* Bulk-action toolbar */}
+        {jobs.length > 0 && (
+          <div className="flex items-center gap-2 mb-4 pb-3 border-b flex-wrap">
+            {!selectMode ? (
+              <Button size="sm" variant="outline" onClick={() => setSelectMode(true)}>☑ Select</Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline"
+                  onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
+                  Select All
+                </Button>
+                <Button size="sm" variant="outline"
+                  onClick={() => setSelected(new Set())}
+                  disabled={selected.size === 0}>
+                  Deselect All
+                </Button>
+                <Button size="sm" variant="destructive"
+                  onClick={handleBulkDelete}
+                  disabled={selected.size === 0 || bulkDeleting}>
+                  {bulkDeleting ? '…' : `Delete (${selected.size})`}
+                </Button>
+                <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
+              </>
+            )}
+            {!selectMode && (
+              <div className="flex items-center gap-2 ml-auto flex-wrap">
+                <input
+                  type="date"
+                  value={beforeDate}
+                  onChange={e => setBeforeDate(e.target.value)}
+                  className="text-sm border rounded px-2 py-1 bg-background h-8"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  disabled={!beforeDate}
+                  onClick={handleDeleteBefore}
+                >
+                  🗑 Delete before date
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Job list */}
         {jobs.length === 0 ? (
-          <p className="text-muted-foreground text-sm text-center py-12">
-            No downloads yet. Paste a YouTube URL above.
-          </p>
+          <div className="flex flex-col items-center gap-3 py-12">
+            <p className="text-muted-foreground text-sm">No downloads yet. Paste a YouTube URL above.</p>
+            <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
+          </div>
         ) : (
           jobs.map((j) => (
-            <JobRow key={j.id} job={j} onPlay={setPlayingJob} onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))} />
+            <JobRow
+              key={j.id}
+              job={j}
+              onPlay={setPlayingJob}
+              onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
+              selectMode={selectMode}
+              selected={selected.has(j.id)}
+              onToggleSelect={() => handleToggleSelect(j.id)}
+            />
           ))
         )}
       </main>
