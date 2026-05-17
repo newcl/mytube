@@ -366,11 +366,13 @@ export default function HomePage() {
 
         {/* Bulk-action toolbar */}
         {jobs.length > 0 && (
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b flex-wrap">
+          <div className="mb-4 pb-3 border-b">
             {!selectMode ? (
-              <Button size="sm" variant="outline" onClick={() => setSelectMode(true)}>☑ Select</Button>
+              <div className="flex">
+                <Button size="sm" variant="outline" onClick={() => setSelectMode(true)}>☑ Select</Button>
+              </div>
             ) : (
-              <>
+              <div className="grid grid-cols-2 sm:flex gap-2">
                 <Button size="sm" variant="outline"
                   onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
                   Select All
@@ -386,20 +388,20 @@ export default function HomePage() {
                   {bulkDeleting ? '…' : `Delete (${selected.size})`}
                 </Button>
                 <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
-              </>
+              </div>
             )}
             {!selectMode && (
-              <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <div className="mt-2 flex flex-col gap-2 sm:mt-0 sm:ml-auto sm:flex-row sm:items-center">
                 <input
                   type="date"
                   value={beforeDate}
                   onChange={e => setBeforeDate(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background h-8"
+                  className="text-sm border rounded px-2 py-1 bg-background h-8 w-full sm:w-auto"
                 />
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  className="w-full sm:w-auto text-destructive hover:bg-destructive hover:text-destructive-foreground"
                   disabled={!beforeDate}
                   onClick={handleDeleteBefore}
                 >
