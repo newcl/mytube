@@ -106,24 +106,19 @@ function JobRow({
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            {!selectMode && <div className="flex gap-2 mt-2 flex-wrap">
+            {!selectMode && <div className="flex flex-wrap gap-2 mt-2">
               {job.output_path && (
-                <>
-                  <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
-                  {job.status === 'completed' && (
-                    <a
-                      href={fileUrl(job.id)}
-                      download
-                      className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
-                    >
-                      ↓ Download
-                    </a>
-                  )}
-                </>
+                <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
-              <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
-                📋 Copy URL
-              </Button>
+              {job.output_path && job.status === 'completed' && (
+                <a
+                  href={fileUrl(job.id)}
+                  download
+                  className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+                >
+                  ↓ Download
+                </a>
+              )}
               <a
                 href={job.url}
                 target="_blank"
@@ -133,6 +128,9 @@ function JobRow({
               >
                 🔗 Source
               </a>
+              <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
+                📋 Copy URL
+              </Button>
               {confirmDelete ? (
                 <>
                   <Button size="sm" variant="destructive" disabled={deleting} onClick={handleDelete}>
@@ -377,19 +375,19 @@ export default function HomePage() {
         {jobs.length > 0 && (
           <div className="mb-4 pb-3 border-b">
             {!selectMode ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => setSelectMode(true)}>☑ Select</Button>
-                <div className="flex items-center gap-2 ml-auto">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button size="sm" variant="outline" className="w-fit" onClick={() => setSelectMode(true)}>☑ Select</Button>
+                <div className="flex items-center gap-2 sm:ml-auto">
                   <input
                     type="date"
                     value={beforeDate}
                     onChange={e => setBeforeDate(e.target.value)}
-                    className="text-sm border rounded px-2 py-1 bg-background h-8"
+                    className="text-sm border rounded px-2 py-1 bg-background h-8 flex-1 sm:flex-none"
                   />
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    className="text-destructive hover:bg-destructive hover:text-destructive-foreground whitespace-nowrap"
                     disabled={!beforeDate}
                     onClick={handleDeleteBefore}
                   >
