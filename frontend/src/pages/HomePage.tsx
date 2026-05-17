@@ -396,7 +396,7 @@ export default function HomePage() {
                   type="date"
                   value={beforeDate}
                   onChange={e => setBeforeDate(e.target.value)}
-                  className="text-sm border rounded px-2 py-1 bg-background h-9 w-full sm:w-auto"
+                  className="text-sm border rounded px-2 py-1 bg-background h-8 w-full sm:w-auto"
                 />
                 <Button
                   size="sm"
