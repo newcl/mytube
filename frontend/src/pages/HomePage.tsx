@@ -124,6 +124,15 @@ function JobRow({
               <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
                 📋 Copy URL
               </Button>
+              <a
+                href={job.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+                title="Open original URL"
+              >
+                🔗 Source
+              </a>
               {confirmDelete ? (
                 <>
                   <Button size="sm" variant="destructive" disabled={deleting} onClick={handleDelete}>
