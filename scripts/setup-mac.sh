@@ -193,6 +193,12 @@ cat > "$CF_TUNNEL_CONFIG" << EOF
 tunnel: ${TUNNEL_ID}
 credentials-file: ${CF_CONFIG_DIR}/${TUNNEL_ID}.json
 
+# Use HTTP/2 (TCP) instead of the default QUIC (UDP).
+# Home routers drop idle UDP/NAT state every ~60 s which causes all four tunnel
+# connections to time out simultaneously and produces brief 530 errors.
+# HTTP/2 keeps persistent TCP connections that survive NAT idle timeouts.
+protocol: http2
+
 ingress:
   - hostname: ${HOSTNAME}
     service: http://localhost:${LOCAL_PORT}
@@ -211,6 +217,15 @@ cloudflared tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$HOSTNAME" \
 info "Installing launchd agent: $CF_LABEL..."
 
 CF_BIN="$(command -v cloudflared)"
+
+# Remove the Homebrew-managed cloudflared agent if present; it conflicts with
+# our custom plist and has no tunnel config (exits 1 immediately).
+HB_CF_PLIST="$HOME/Library/LaunchAgents/homebrew.mxcl.cloudflared.plist"
+if [[ -f "$HB_CF_PLIST" ]]; then
+  launchctl unload "$HB_CF_PLIST" 2>/dev/null || true
+  rm -f "$HB_CF_PLIST"
+  warn "Removed homebrew.mxcl.cloudflared LaunchAgent (conflicts with $CF_LABEL)"
+fi
 
 if launchctl list "$CF_LABEL" &>/dev/null; then
   launchctl unload "$CF_PLIST" 2>/dev/null || true
@@ -271,6 +286,12 @@ echo "  Test API:         curl -s https://${HOSTNAME}/health"
 echo ""
 echo "  IMPORTANT: On the first download, macOS will ask for Keychain"
 echo "  access so yt-dlp can read Chrome cookies. Click 'Always Allow'."
+echo ""
+echo -e "  ${YELLOW}IMPORTANT — Mac restart resilience:${NC}"
+echo "  The launchd agents above only start after a GUI login (LaunchAgents)."
+echo "  If the Mac mini restarts unattended, services won't run until you log in."
+echo "  Fix: enable automatic login in System Settings → Users & Groups → Login Options"
+echo "  (acceptable for a home server; disable if the machine is in a shared space)."
 echo ""
 echo "  Frontend settings:"
 echo "    API Base URL: https://${HOSTNAME}"
