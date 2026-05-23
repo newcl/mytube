@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://api.mytube.elladali.com';
+const DEFAULT_API_BASE = 'https://mytubeapi.elladali.com';
 
 // Restore saved values
 chrome.storage.local.get(['apiBase', 'token'], (items) => {

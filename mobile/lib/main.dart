@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -92,6 +94,96 @@ class ApiService {
 
   String fileUrl(int id) =>
       '$baseUrl/files/$id?token=${Uri.encodeQueryComponent(token)}';
+}
+
+// ── Local download manager ────────────────────────────────────────────────────
+
+class LocalDownloadManager {
+  LocalDownloadManager({required this.baseUrl, required this.token});
+  final String baseUrl;
+  final String token;
+
+  Future<Directory> _dir() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/mytube_offline');
+    if (!await dir.exists()) await dir.create();
+    return dir;
+  }
+
+  File _fileFor(Directory dir, int jobId) => File('${dir.path}/$jobId.mp4');
+
+  Future<bool> isDownloaded(int jobId) async {
+    try {
+      return _fileFor(await _dir(), jobId).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<File?> getLocalFile(int jobId) async {
+    try {
+      final f = _fileFor(await _dir(), jobId);
+      return f.existsSync() ? f : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Set<int>> localJobIds() async {
+    try {
+      final dir = await _dir();
+      final ids = <int>{};
+      await for (final entity in dir.list()) {
+        final name = entity.path.split('/').last;
+        if (name.endsWith('.mp4')) {
+          final id = int.tryParse(name.replaceAll('.mp4', ''));
+          if (id != null) ids.add(id);
+        }
+      }
+      return ids;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<File> download(
+      int jobId, void Function(double) onProgress) async {
+    final url =
+        '$baseUrl/files/$jobId?token=${Uri.encodeQueryComponent(token)}';
+    final dir = await _dir();
+    final file = _fileFor(dir, jobId);
+    final tmpFile = File('${dir.path}/$jobId.tmp');
+
+    final request = http.Request('GET', Uri.parse(url));
+    final response =
+        await request.send().timeout(const Duration(minutes: 30));
+    if (response.statusCode != 200) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+
+    final total = response.contentLength ?? 0;
+    int received = 0;
+    final sink = tmpFile.openWrite();
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) onProgress(received / total);
+      }
+    } finally {
+      await sink.close();
+    }
+    await tmpFile.rename(file.path);
+    onProgress(1.0);
+    return file;
+  }
+
+  Future<void> deleteLocalFile(int jobId) async {
+    try {
+      final f = _fileFor(await _dir(), jobId);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+  }
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -249,6 +341,12 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   bool _selectMode = false;
   final Set<int> _selected = {};
 
+  // Local offline downloads
+  final Set<int> _locallyDownloaded = {};
+  final Map<int, double> _downloading = {};
+  LocalDownloadManager get _dlManager =>
+      LocalDownloadManager(baseUrl: widget.api.baseUrl, token: widget.api.token);
+
   void _enterSelectMode(int id) {
     setState(() {
       _selectMode = true;
@@ -293,7 +391,13 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     for (final id in ids) {
       try {
         await widget.api.deleteJob(id);
-        if (mounted) setState(() => _jobs.removeWhere((j) => j.id == id));
+        unawaited(_dlManager.deleteLocalFile(id));
+        if (mounted) {
+          setState(() {
+            _jobs.removeWhere((j) => j.id == id);
+            _locallyDownloaded.remove(id);
+          });
+        }
       } catch (_) {
         failed++;
       }
@@ -311,6 +415,16 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _refresh();
+    _loadLocalDownloads();
+  }
+
+  Future<void> _loadLocalDownloads() async {
+    final ids = await _dlManager.localJobIds();
+    if (!mounted) return;
+    setState(() {
+      _locallyDownloaded.clear();
+      _locallyDownloaded.addAll(ids);
+    });
   }
 
   @override
@@ -348,7 +462,13 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   Future<void> _delete(Job job) async {
     try {
       await widget.api.deleteJob(job.id);
-      if (mounted) setState(() => _jobs.removeWhere((j) => j.id == job.id));
+      unawaited(_dlManager.deleteLocalFile(job.id));
+      if (mounted) {
+        setState(() {
+          _jobs.removeWhere((j) => j.id == job.id);
+          _locallyDownloaded.remove(job.id);
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -360,14 +480,41 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _play(Job job) async {
+    final localFile = await _dlManager.getLocalFile(job.id);
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => VideoPlayerPage(
           job: job,
           videoUrl: widget.api.fileUrl(job.id),
+          localFile: localFile,
         ),
       ),
     );
+  }
+
+  Future<void> _downloadToPhone(Job job) async {
+    if (_downloading.containsKey(job.id)) return;
+    setState(() => _downloading[job.id] = 0.0);
+    try {
+      await _dlManager.download(job.id, (progress) {
+        if (mounted) setState(() => _downloading[job.id] = progress);
+      });
+      if (mounted) {
+        setState(() {
+          _downloading.remove(job.id);
+          _locallyDownloaded.add(job.id);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _downloading.remove(job.id));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Save failed: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    }
   }
 
   @override
@@ -426,6 +573,9 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                           selected: _selected.contains(_jobs[i].id),
                           onLongPress: () => _enterSelectMode(_jobs[i].id),
                           onToggleSelect: () => _toggleSelect(_jobs[i].id),
+                          isLocallyDownloaded: _locallyDownloaded.contains(_jobs[i].id),
+                          downloadingProgress: _downloading[_jobs[i].id],
+                          onDownloadToPhone: _selectMode ? null : () => _downloadToPhone(_jobs[i]),
                         ),
                       ),
                     ),
@@ -477,6 +627,9 @@ class _JobCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onLongPress;
   final VoidCallback onToggleSelect;
+  final bool isLocallyDownloaded;
+  final double? downloadingProgress;
+  final VoidCallback? onDownloadToPhone;
   const _JobCard({
     required this.job,
     required this.onDelete,
@@ -485,6 +638,9 @@ class _JobCard extends StatelessWidget {
     required this.selected,
     required this.onLongPress,
     required this.onToggleSelect,
+    required this.isLocallyDownloaded,
+    required this.downloadingProgress,
+    required this.onDownloadToPhone,
   });
 
   Color _statusColor(BuildContext context) {
@@ -506,102 +662,155 @@ class _JobCard extends StatelessWidget {
             : null,
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Checkbox shown in select mode, thumbnail otherwise
-              if (selectMode)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8, top: 8),
-                  child: Checkbox(
-                    value: selected,
-                    onChanged: (_) => onToggleSelect(),
-                  ),
-                )
-              else
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: job.thumbnailUrl.isNotEmpty
-                      ? Image.network(job.thumbnailUrl, width: 90, height: 60, fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => _placeholder())
-                      : _placeholder(),
-                ),
-              if (!selectMode) const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              // Top row: thumbnail/checkbox + title info
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Checkbox shown in select mode, thumbnail otherwise
+                  if (selectMode)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8, top: 8),
+                      child: Checkbox(
+                        value: selected,
+                        onChanged: (_) => onToggleSelect(),
+                      ),
+                    )
+                  else
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: job.thumbnailUrl.isNotEmpty
+                          ? Image.network(job.thumbnailUrl, width: 90, height: 60, fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => _placeholder())
+                          : _placeholder(),
+                    ),
+                  if (!selectMode) const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            job.title.isNotEmpty ? job.title : job.url,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                job.title.isNotEmpty ? job.title : job.url,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _StatusBadge(status: job.status, color: _statusColor(context)),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        _StatusBadge(status: job.status, color: _statusColor(context)),
-                      ],
-                    ),
-                    if (job.uploader.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(job.uploader, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                    ],
-                    if (job.status == 'downloading' && job.progress != null) ...[
-                      const SizedBox(height: 6),
-                      LinearProgressIndicator(value: (job.progress!.percent / 100).clamp(0.0, 1.0)),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${job.progress!.percent.toStringAsFixed(1)}%  ${job.progress!.speed}  ETA ${job.progress!.eta}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                      ),
-                    ],
-                    if (job.status == 'failed' && job.error.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(job.error,
-                          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
-                          maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ],
-                    if (job.status == 'completed' && !selectMode) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          FilledButton.icon(
-                            onPressed: onPlay,
-                            icon: const Icon(Icons.play_arrow),
-                            label: const Text('Play'),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              minimumSize: const Size(0, 36),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton.outlined(
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: job.url));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('URL copied'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.link, size: 20),
-                            tooltip: 'Copy URL',
-                            style: IconButton.styleFrom(
-                              minimumSize: const Size(36, 36),
-                              padding: EdgeInsets.zero,
-                            ),
+                        if (job.uploader.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(job.uploader, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                        ],
+                        if (job.status == 'downloading' && job.progress != null) ...[
+                          const SizedBox(height: 6),
+                          LinearProgressIndicator(value: (job.progress!.percent / 100).clamp(0.0, 1.0)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${job.progress!.percent.toStringAsFixed(1)}%  ${job.progress!.speed}  ETA ${job.progress!.eta}',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                           ),
                         ],
+                        if (job.status == 'failed' && job.error.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(job.error,
+                              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              // Bottom row: full-width action buttons (completed jobs only)
+              if (job.status == 'completed' && !selectMode) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onPlay,
+                        icon: Icon(isLocallyDownloaded
+                            ? Icons.offline_pin
+                            : Icons.play_arrow),
+                        label: const Text('Play'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          minimumSize: const Size(0, 36),
+                        ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 8),
+                    if (downloadingProgress != null)
+                      SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Padding(
+                          padding: const EdgeInsets.all(7),
+                          child: CircularProgressIndicator(
+                            value: downloadingProgress! > 0
+                                ? downloadingProgress
+                                : null,
+                            strokeWidth: 2.5,
+                          ),
+                        ),
+                      )
+                    else if (!isLocallyDownloaded)
+                      IconButton.outlined(
+                        onPressed: onDownloadToPhone,
+                        icon: const Icon(
+                            Icons.download_for_offline_outlined,
+                            size: 20),
+                        tooltip: 'Save to phone',
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(36, 36),
+                          padding: EdgeInsets.zero,
+                        ),
+                      )
+                    else
+                      Tooltip(
+                        message: 'Saved on phone',
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Theme.of(context).colorScheme.outline),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.check_circle_outline,
+                              size: 20, color: Colors.green),
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: job.url));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('URL copied'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.link, size: 20),
+                      tooltip: 'Copy URL',
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(36, 36),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
                   ],
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -675,7 +884,8 @@ class _StatusBadge extends StatelessWidget {
 class VideoPlayerPage extends StatefulWidget {
   final Job job;
   final String videoUrl;
-  const VideoPlayerPage({super.key, required this.job, required this.videoUrl});
+  final File? localFile;
+  const VideoPlayerPage({super.key, required this.job, required this.videoUrl, this.localFile});
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
@@ -704,13 +914,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _controller = VideoPlayerController.networkUrl(
-      Uri.parse(widget.videoUrl),
-      videoPlayerOptions: VideoPlayerOptions(
-        allowBackgroundPlayback: true,
-        mixWithOthers: false,
-      ),
-    );
+    _controller = widget.localFile != null
+        ? VideoPlayerController.file(
+            widget.localFile!,
+            videoPlayerOptions: VideoPlayerOptions(
+              allowBackgroundPlayback: true,
+              mixWithOthers: false,
+            ),
+          )
+        : VideoPlayerController.networkUrl(
+            Uri.parse(widget.videoUrl),
+            videoPlayerOptions: VideoPlayerOptions(
+              allowBackgroundPlayback: true,
+              mixWithOthers: false,
+            ),
+          );
     _nowPlayingChannel.setMethodCallHandler(_handleRemoteCommand);
     _controller.initialize().then((_) {
       if (!mounted) return;

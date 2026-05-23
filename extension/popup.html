@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      width: 300px;
+      padding: 14px 16px;
+      background: #fff;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    header span { font-size: 1rem; font-weight: 600; }
+    #status {
+      font-size: 0.875rem;
+      padding: 10px 12px;
+      border-radius: 6px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .loading { color: #4a5568; background: #f7fafc; }
+    .success { color: #276749; background: #f0fff4; border: 1px solid #9ae6b4; }
+    .error   { color: #c53030; background: #fff5f5; border: 1px solid #feb2b2; }
+    .warn    { color: #7b341e; background: #fffaf0; border: 1px solid #fbd38d; }
+    #footer  { margin-top: 10px; text-align: right; }
+    #footer a {
+      font-size: 0.78rem;
+      color: #3182ce;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    #footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/icon16.png" width="16" height="16" />
+    <span>MyTube</span>
+  </header>
+  <div id="status" class="loading">Connecting…</div>
+  <div id="footer">
+    <a id="open-options">Settings</a>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,56 +1,28 @@
-const DEFAULT_API_BASE = 'https://api.mytube.elladali.com';
+// Fetch lives here so it runs in the service worker, which bypasses CORS
+// for URLs declared in host_permissions.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== 'QUEUE_URL') return false;
 
-chrome.action.onClicked.addListener(async (tab) => {
-  const { apiBase, token } = await chrome.storage.local.get(['apiBase', 'token']);
-  const base = (apiBase || DEFAULT_API_BASE).replace(/\/+$/, '');
-  const tok = token || '';
+  const { apiBase, token, url } = msg;
 
-  if (!tok) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'MyTube',
-      message: 'Please set your API token in the extension Options.',
-    });
-    return;
-  }
+  fetch(`${apiBase}/api/jobs`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  })
+    .then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        sendResponse({ ok: true, jobId: data.id });
+      } else {
+        const text = await res.text();
+        sendResponse({ ok: false, error: `HTTP ${res.status}: ${text.trim().slice(0, 200)}` });
+      }
+    })
+    .catch((err) => sendResponse({ ok: false, error: String(err) }));
 
-  const url = tab.url || '';
-  if (!url) return;
-
-  try {
-    const res = await fetch(`${base}/api/jobs`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tok}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon48.png',
-        title: 'MyTube',
-        message: `Queued! Job #${data.id}`,
-      });
-    } else {
-      const text = await res.text();
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon48.png',
-        title: 'MyTube — Error',
-        message: `Failed (${res.status}): ${text.slice(0, 80)}`,
-      });
-    }
-  } catch (err) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'MyTube — Error',
-      message: `Network error: ${String(err).slice(0, 80)}`,
-    });
-  }
+  return true; // keep channel open for async response
 });
