@@ -67,6 +67,17 @@ func (h *Handler) PostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the same URL is already queued, downloading, or completed, return the
+	// existing job instead of creating a duplicate download.
+	if existing, err := dbpkg.FindActiveJobByURL(h.DB, body.URL); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	} else if existing != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"id": existing})
+		return
+	}
+
 	id, err := dbpkg.CreateJob(h.DB, body.URL)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

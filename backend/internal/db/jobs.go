@@ -45,6 +45,20 @@ type Job struct {
 	LogTail      string    `json:"-"` // served separately
 }
 
+// FindActiveJobByURL returns the ID of an existing job for the given URL that
+// is queued, downloading, or completed. Returns 0 if none exists.
+func FindActiveJobByURL(db *sql.DB, url string) (int64, error) {
+	var id int64
+	err := db.QueryRow(
+		`SELECT id FROM jobs WHERE url = ? AND status IN ('queued','downloading','completed') ORDER BY id DESC LIMIT 1`,
+		url,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return id, err
+}
+
 // CreateJob inserts a new queued job and returns its ID.
 func CreateJob(db *sql.DB, url string) (int64, error) {
 	res, err := db.Exec(
