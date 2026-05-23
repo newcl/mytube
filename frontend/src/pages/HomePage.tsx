@@ -13,6 +13,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../components/ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../components/ui/popover';
 
 const POLL_INTERVAL = 1500; // ms
 
@@ -36,21 +41,17 @@ function JobRow({
   selected?: boolean;
   onToggleSelect?: () => void;
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   async function handleDelete() {
-    if (job.status === 'completed' && !confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
     setDeleting(true);
+    setConfirmOpen(false);
     try {
       await deleteJob(job.id);
       onDeleted(job.id);
     } catch {
       setDeleting(false);
-      setConfirmDelete(false);
     }
   }
 
@@ -131,18 +132,28 @@ function JobRow({
               <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
                 📋 Copy URL
               </Button>
-              {confirmDelete ? (
-                <>
-                  <Button size="sm" variant="destructive" disabled={deleting} onClick={handleDelete}>
-                    {deleting ? '…' : 'Confirm delete'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-                </>
+              {job.status === 'completed' ? (
+                <Popover open={confirmOpen} onOpenChange={setConfirmOpen}>
+                  <PopoverTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={deleting}
+                      className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    >
+                      {deleting ? '…' : '🗑 Delete'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-3" align="end">
+                    <p className="text-sm font-medium mb-3">Delete this video?</p>
+                    <div className="flex gap-2 justify-end">
+                      <Button size="sm" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                      <Button size="sm" variant="destructive" onClick={handleDelete}>Delete</Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               ) : (
                 <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
                   className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
-                  🗑 Delete
+                  {deleting ? '…' : '🗑 Delete'}
                 </Button>
               )}
             </div>}
