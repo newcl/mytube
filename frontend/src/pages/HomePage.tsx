@@ -112,13 +112,33 @@ function JobRow({
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
               {job.output_path && job.status === 'completed' && (
-                <a
-                  href={fileUrl(job.id)}
-                  download
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    try {
+                      const res = await fetch(fileUrl(job.id), { credentials: 'include' });
+                      if (!res.ok) throw new Error('Failed to fetch video');
+                      const blob = await res.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = (job.title ? job.title.replace(/[^\w\d\-_\.]/g, '_') : `video_${job.id}`) + '.mp4';
+                      document.body.appendChild(a);
+                      a.click();
+                      setTimeout(() => {
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                      }, 1000);
+                    } catch (err) {
+                      alert('Download failed.');
+                    }
+                  }}
                   className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
                 >
                   ↓ Download
-                </a>
+                </Button>
               )}
               <a
                 href={job.url}
