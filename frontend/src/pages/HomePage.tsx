@@ -30,23 +30,55 @@ function statusColor(status: Job['status']): 'default' | 'secondary' | 'destruct
   }
 }
 
+// Detect iOS (iPhone/iPad) — these buffer the entire blob in RAM so we use
+// a direct URL + Share sheet instead of the fetch-blob approach.
+function isIOS() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
 function DownloadButton({ job }: { job: Job }) {
-  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
 
   async function handleDownload() {
-    setDownloading(true);
+    // iOS: open file URL in new tab → Safari plays it → user taps Share → Save to Files.
+    // This avoids buffering the entire video in browser RAM which crashes iOS tabs.
+    if (isIOS()) {
+      window.open(fileUrl(job.id), '_blank');
+      return;
+    }
+
+    setProgress(0);
     try {
       const res = await fetch(`${getApiBase()}/files/${job.id}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const blob = await res.blob();
+
+      const contentLength = res.headers.get('content-length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+      const reader = res.body!.getReader();
+      const chunks: ArrayBuffer[] = [];
+      let received = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+        received += value.length;
+        if (total > 0) setProgress(Math.round(received / total * 100));
+      }
+
+      const mimeType = res.headers.get('content-type') || 'video/mp4';
+      const blob = new Blob(chunks, { type: mimeType });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const ext = blob.type.includes('mp4') ? '.mp4'
-        : blob.type.includes('webm') ? '.webm'
-        : blob.type.includes('ogg') ? '.ogg' : '.mp4';
+      const ext = mimeType.includes('webm') ? '.webm'
+        : mimeType.includes('ogg') ? '.ogg' : '.mp4';
       a.download = (job.title ? job.title.replace(/[/\\:*?"<>|]/g, '_') : `video_${job.id}`) + ext;
       document.body.appendChild(a);
       a.click();
@@ -54,13 +86,17 @@ function DownloadButton({ job }: { job: Job }) {
     } catch (err) {
       alert(`Download failed: ${err}`);
     } finally {
-      setDownloading(false);
+      setProgress(null);
     }
   }
 
+  const label = progress === null ? '↓ Download'
+    : progress === 0 ? '↓ 0%'
+    : `↓ ${progress}%`;
+
   return (
-    <Button size="sm" variant="outline" onClick={handleDownload} disabled={downloading}>
-      {downloading ? '…' : '↓ Download'}
+    <Button size="sm" variant="outline" onClick={handleDownload} disabled={progress !== null}>
+      {label}
     </Button>
   );
 }
