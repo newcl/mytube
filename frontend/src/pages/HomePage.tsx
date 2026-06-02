@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
-import { fileUrl, getApiBase, getToken, saveSettings } from '../config';
+import { fileUrl, fileZipDownloadUrl, getApiBase, getToken, saveSettings } from '../config';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -43,10 +43,10 @@ function DownloadButton({ job }: { job: Job }) {
   const [progress, setProgress] = useState<number | null>(null);
 
   async function handleDownload() {
-    // iOS: open file URL in new tab → Safari plays it → user taps Share → Save to Files.
-    // This avoids buffering the entire video in browser RAM which crashes iOS tabs.
+    // iOS: open zip attachment URL in a new tab so browser treats it as a file download.
+    // This avoids inline media playback and also avoids large in-memory blob buffering.
     if (isIOS()) {
-      window.open(fileUrl(job.id), '_blank');
+      window.open(fileZipDownloadUrl(job.id), '_blank');
       return;
     }
 

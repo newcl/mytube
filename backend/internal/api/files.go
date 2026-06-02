@@ -1,10 +1,13 @@
 package api
 
 import (
+	"archive/zip"
 	"database/sql"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,14 +41,42 @@ func ServeFile(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if r.URL.Query().Get("download") == "1" {
-			name := filepath.Base(job.OutputPath)
-			if name == "" || name == "." || name == string(filepath.Separator) {
-				name = fmt.Sprintf("video_%d.mp4", job.ID)
+		name := filepath.Base(job.OutputPath)
+		if name == "" || name == "." || name == string(filepath.Separator) {
+			name = fmt.Sprintf("video_%d.mp4", job.ID)
+		}
+		name = strings.ReplaceAll(name, `"`, "")
+		name = strings.ReplaceAll(name, "\n", "")
+		name = strings.ReplaceAll(name, "\r", "")
+
+		// iOS Safari/Chrome force media MIME types to play inline.
+		// zip=1 wraps the file into a zip attachment so iOS treats it as a download.
+		if r.URL.Query().Get("zip") == "1" {
+			f, err := os.Open(job.OutputPath)
+			if err != nil {
+				http.Error(w, "file open error", http.StatusInternalServerError)
+				return
 			}
-			name = strings.ReplaceAll(name, `"`, "")
-			name = strings.ReplaceAll(name, "\n", "")
-			name = strings.ReplaceAll(name, "\r", "")
+			defer f.Close()
+
+			zipName := strings.TrimSuffix(name, filepath.Ext(name)) + ".zip"
+			w.Header().Set("Content-Type", "application/zip")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipName))
+
+			zw := zip.NewWriter(w)
+			entry, err := zw.Create(name)
+			if err != nil {
+				http.Error(w, "zip error", http.StatusInternalServerError)
+				return
+			}
+			if _, err := io.Copy(entry, f); err != nil {
+				return
+			}
+			_ = zw.Close()
+			return
+		}
+
+		if r.URL.Query().Get("download") == "1" {
 			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
 		}
 

@@ -33,3 +33,8 @@ export function fileUrl(jobId: number): string {
 export function fileDownloadUrl(jobId: number): string {
   return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&download=1`;
 }
+
+/** Build a file URL that wraps video into zip for iOS download behavior. */
+export function fileZipDownloadUrl(jobId: number): string {
+  return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&zip=1`;
+}
