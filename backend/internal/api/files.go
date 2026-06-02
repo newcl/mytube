@@ -2,10 +2,12 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"mime"
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	dbpkg "github.com/newcl/mytube/backend/internal/db"
@@ -34,6 +36,17 @@ func ServeFile(db *sql.DB) http.HandlerFunc {
 		if job.OutputPath == "" {
 			http.Error(w, "not ready", http.StatusNotFound)
 			return
+		}
+
+		if r.URL.Query().Get("download") == "1" {
+			name := filepath.Base(job.OutputPath)
+			if name == "" || name == "." || name == string(filepath.Separator) {
+				name = fmt.Sprintf("video_%d.mp4", job.ID)
+			}
+			name = strings.ReplaceAll(name, `"`, "")
+			name = strings.ReplaceAll(name, "\n", "")
+			name = strings.ReplaceAll(name, "\r", "")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
 		}
 
 		// Content-Type by extension
