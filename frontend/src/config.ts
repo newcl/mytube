@@ -8,8 +8,10 @@ export function getApiBase(): string {
   );
 }
 
+const DEFAULT_TOKEN = 'a86ff4614dc198cdaaa004e344e2ea3656a88fbd07959ead78e7c496f426cfc4';
+
 export function getToken(): string {
-  return localStorage.getItem('mytube_token') || '';
+  return localStorage.getItem('mytube_token') || DEFAULT_TOKEN;
 }
 
 export function saveSettings(apiBase: string, token: string): void {
@@ -27,6 +29,7 @@ export function fileUrl(jobId: number): string {
 }
 
 /** Build a file URL that forces browser download (no fetch/CORS needed). */
+// NOTE: kept for reference but superseded by the blob download approach in the UI.
 export function fileDownloadUrl(jobId: number): string {
   return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&download=1`;
 }

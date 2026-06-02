@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
-import { fileDownloadUrl, fileUrl, getApiBase, getToken, saveSettings } from '../config';
+import { fileUrl, getApiBase, getToken, saveSettings } from '../config';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -28,6 +28,41 @@ function statusColor(status: Job['status']): 'default' | 'secondary' | 'destruct
     case 'failed': return 'destructive';
     default: return 'outline';
   }
+}
+
+function DownloadButton({ job }: { job: Job }) {
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const res = await fetch(`${getApiBase()}/files/${job.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ext = blob.type.includes('mp4') ? '.mp4'
+        : blob.type.includes('webm') ? '.webm'
+        : blob.type.includes('ogg') ? '.ogg' : '.mp4';
+      a.download = (job.title ? job.title.replace(/[/\\:*?"<>|]/g, '_') : `video_${job.id}`) + ext;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { window.URL.revokeObjectURL(url); a.remove(); }, 1000);
+    } catch (err) {
+      alert(`Download failed: ${err}`);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <Button size="sm" variant="outline" onClick={handleDownload} disabled={downloading}>
+      {downloading ? '…' : '↓ Download'}
+    </Button>
+  );
 }
 
 function JobRow({
@@ -112,13 +147,7 @@ function JobRow({
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
               {job.output_path && job.status === 'completed' && (
-                <a
-                  href={fileDownloadUrl(job.id)}
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
-                >
-                  ↓ Download
-                </a>
+                <DownloadButton job={job} />
               )}
               <a
                 href={job.url}
