@@ -25,3 +25,8 @@ export function authHeaders(): HeadersInit {
 export function fileUrl(jobId: number): string {
   return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}`;
 }
+
+/** Build a file URL that forces browser download (no fetch/CORS needed). */
+export function fileDownloadUrl(jobId: number): string {
+  return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&download=1`;
+}

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
-import { fileUrl, getApiBase, getToken, saveSettings } from '../config';
+import { fileDownloadUrl, fileUrl, getApiBase, getToken, saveSettings } from '../config';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent } from '../components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -112,33 +112,13 @@ function JobRow({
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
               {job.output_path && job.status === 'completed' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async (e) => {
-                    e.preventDefault();
-                    try {
-                      const res = await fetch(fileUrl(job.id), { credentials: 'include' });
-                      if (!res.ok) throw new Error('Failed to fetch video');
-                      const blob = await res.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = (job.title ? job.title.replace(/[^\w\d\-_\.]/g, '_') : `video_${job.id}`) + '.mp4';
-                      document.body.appendChild(a);
-                      a.click();
-                      setTimeout(() => {
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                      }, 1000);
-                    } catch (err) {
-                      alert('Download failed.');
-                    }
-                  }}
+                <a
+                  href={fileDownloadUrl(job.id)}
+                  rel="noopener noreferrer"
                   className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
                 >
                   ↓ Download
-                </Button>
+                </a>
               )}
               <a
                 href={job.url}
