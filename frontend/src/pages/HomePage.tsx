@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
-import { fileUrl, fileZipDownloadUrl, getApiBase, getToken, saveSettings } from '../config';
+import {
+  fileUrl,
+  fileZipDownloadUrl,
+  getApiBase,
+  getAppVersion,
+  getAppVersionShort,
+  getToken,
+  saveSettings,
+} from '../config';
 import { extractYouTubeUrl } from '../utils/urlExtractor';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -351,6 +359,8 @@ export default function HomePage() {
 
   // Delete before date
   const [beforeDate, setBeforeDate] = useState('');
+  const appVersion = getAppVersion();
+  const appVersionShort = getAppVersionShort();
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -453,6 +463,12 @@ export default function HomePage() {
         <div className="flex items-center gap-2">
           <img src="/mytube.svg" alt="" className="w-7 h-7" />
           <h1 className="text-lg font-bold">MyTube</h1>
+          <span
+            className="text-[11px] uppercase tracking-wide rounded border border-border px-2 py-0.5 text-muted-foreground"
+            title={`Build ${appVersion}`}
+          >
+            v{appVersionShort}
+          </span>
           {hasActive && (
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-1" title="Active downloads" />
           )}

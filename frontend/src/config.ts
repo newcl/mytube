@@ -38,3 +38,14 @@ export function fileDownloadUrl(jobId: number): string {
 export function fileZipDownloadUrl(jobId: number): string {
   return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&zip=1`;
 }
+
+export function getAppVersion(): string {
+  const raw = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__.trim() : '';
+  return raw || 'dev';
+}
+
+export function getAppVersionShort(): string {
+  const version = getAppVersion();
+  if (version === 'dev') return 'dev';
+  return version.slice(0, 7);
+}
