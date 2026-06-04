@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
 import { fileUrl, fileZipDownloadUrl, getApiBase, getToken, saveSettings } from '../config';
+import { extractYouTubeUrl } from '../utils/urlExtractor';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -37,6 +38,14 @@ function isIOS() {
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   );
+}
+
+function isMobilePlatform() {
+  return isIOS() || /Android/i.test(navigator.userAgent);
+}
+
+function looksLikeYouTubeUrl(text: string): boolean {
+  return /(?:youtube\.com|youtu\.be)/i.test(text);
 }
 
 function DownloadButton({ job }: { job: Job }) {
@@ -359,6 +368,26 @@ export default function HomePage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchJobs]);
+
+  useEffect(() => {
+    if (!isMobilePlatform()) return;
+    if (!navigator.clipboard?.readText) return;
+
+    const autofillFromClipboard = async () => {
+      try {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (!text || !looksLikeYouTubeUrl(text)) return;
+        if (!extractYouTubeUrl(text)) return;
+        setUrl(text);
+      } catch {
+        // iOS/Android may deny clipboard reads without a recent user gesture.
+      }
+    };
+
+    autofillFromClipboard();
+    window.addEventListener('focus', autofillFromClipboard);
+    return () => window.removeEventListener('focus', autofillFromClipboard);
+  }, []);
 
   function exitSelectMode() {
     setSelectMode(false);
