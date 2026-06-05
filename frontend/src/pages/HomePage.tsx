@@ -383,6 +383,10 @@ export default function HomePage() {
     if (!isMobilePlatform()) return;
     if (!navigator.clipboard?.readText) return;
 
+    // iOS shows a system paste prompt for eager reads on load/focus, which can
+    // block the initial view. Keep eager autofill on Android only.
+    if (isIOS()) return;
+
     const autofillFromClipboard = async () => {
       try {
         const text = (await navigator.clipboard.readText()).trim();
@@ -398,6 +402,18 @@ export default function HomePage() {
     window.addEventListener('focus', autofillFromClipboard);
     return () => window.removeEventListener('focus', autofillFromClipboard);
   }, []);
+
+  async function handlePasteIntoInput() {
+    if (!navigator.clipboard?.readText) return;
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text || !looksLikeYouTubeUrl(text)) return;
+      if (!extractYouTubeUrl(text)) return;
+      setUrl(text);
+    } catch {
+      // No-op when clipboard access is denied.
+    }
+  }
 
   function exitSelectMode() {
     setSelectMode(false);
@@ -486,6 +502,14 @@ export default function HomePage() {
             className="flex-1"
             disabled={submitting}
           />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handlePasteIntoInput}
+            disabled={submitting}
+          >
+            Paste
+          </Button>
           <Button type="submit" disabled={submitting || !url.trim()}>
             {submitting ? '…' : 'Queue'}
           </Button>
