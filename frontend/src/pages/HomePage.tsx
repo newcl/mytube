@@ -404,14 +404,32 @@ export default function HomePage() {
   }, []);
 
   async function handlePasteIntoInput() {
+    if (submitting) return;
     if (!navigator.clipboard?.readText) return;
     try {
       const text = (await navigator.clipboard.readText()).trim();
       if (!text || !looksLikeYouTubeUrl(text)) return;
       if (!extractYouTubeUrl(text)) return;
       setUrl(text);
+      await queueUrl(text);
     } catch {
       // No-op when clipboard access is denied.
+    }
+  }
+
+  async function queueUrl(nextUrl: string) {
+    const trimmed = nextUrl.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await createJob(trimmed);
+      setUrl('');
+      fetchJobs();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -457,18 +475,7 @@ export default function HomePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!url.trim()) return;
-    setSubmitting(true);
-    setError('');
-    try {
-      await createJob(url.trim());
-      setUrl('');
-      fetchJobs();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setSubmitting(false);
-    }
+    await queueUrl(url);
   }
 
   const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'downloading');
@@ -508,7 +515,7 @@ export default function HomePage() {
             onClick={handlePasteIntoInput}
             disabled={submitting}
           >
-            Paste
+            Paste+Queue
           </Button>
           <Button type="submit" disabled={submitting || !url.trim()}>
             {submitting ? '…' : 'Queue'}
