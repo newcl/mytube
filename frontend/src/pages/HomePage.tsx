@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
 import {
   fileUrl,
@@ -265,13 +265,11 @@ function JobRow({
 
 function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pipActiveRef = useRef(false);
   const [pipAvailable, setPipAvailable] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
-  const liveJob = useMemo(
-    () => (job ? (jobs.find(j => j.id === job.id) ?? job) : null),
-    [job, jobs],
-  );
+  const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
   const env = detectPlaybackEnvironment();
@@ -288,6 +286,10 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     setBgPlaybackWarning('');
     setPipActive(false);
   }, [job]);
+
+  useEffect(() => {
+    pipActiveRef.current = pipActive;
+  }, [pipActive]);
 
   useEffect(() => {
     if (!job) return;
@@ -356,16 +358,25 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onVisibilityChange = () => {
-      if (document.visibilityState !== 'hidden' || video.ended || pipActive) return;
+      const isInPiP = pipActiveRef.current
+        || document.pictureInPictureElement === video
+        || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
+      if (document.visibilityState !== 'hidden' || video.ended || isInPiP) return;
       if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       pauseCheckTimer = setTimeout(() => {
-        if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
+        const stillInPiP = pipActiveRef.current
+          || document.pictureInPictureElement === video
+          || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
+        if (document.visibilityState === 'hidden' && video.paused && !video.ended && !stillInPiP) {
           setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
         }
       }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
     };
     const onPause = () => {
-      if (document.visibilityState === 'hidden' && !video.ended && !pipActive) {
+      const isInPiP = pipActiveRef.current
+        || document.pictureInPictureElement === video
+        || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
+      if (document.visibilityState === 'hidden' && !video.ended && !isInPiP) {
         setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
       }
     };
