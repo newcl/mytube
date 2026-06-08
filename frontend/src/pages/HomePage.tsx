@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { listJobs, createJob, deleteJob, type Job } from '../api';
 import {
   fileUrl,
@@ -268,7 +268,10 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
   const [pipAvailable, setPipAvailable] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
-  const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
+  const liveJob = useMemo(
+    () => (job ? (jobs.find(j => j.id === job.id) ?? job) : null),
+    [job, jobs],
+  );
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
   const env = detectPlaybackEnvironment();
@@ -318,7 +321,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       artist: liveJob.uploader || 'MyTube',
       artwork,
     });
-    navigator.mediaSession.setActionHandler('play', () => { void video.play(); });
+    navigator.mediaSession.setActionHandler('play', () => { video.play().catch(() => undefined); });
     navigator.mediaSession.setActionHandler('pause', () => video.pause());
     navigator.mediaSession.setActionHandler('stop', () => video.pause());
     navigator.mediaSession.setActionHandler('seekbackward', () => {
@@ -344,7 +347,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       navigator.mediaSession.setActionHandler('seekbackward', null);
       navigator.mediaSession.setActionHandler('seekforward', null);
     };
-  }, [job, liveJob?.thumbnail_url, liveJob?.title, liveJob?.uploader]);
+  }, [job, liveJob]);
 
   useEffect(() => {
     if (!job) return;
@@ -353,7 +356,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onVisibilityChange = () => {
-      if (document.visibilityState !== 'hidden' || video.paused || video.ended || pipActive) return;
+      if (document.visibilityState !== 'hidden' || video.ended || pipActive) return;
       if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       pauseCheckTimer = setTimeout(() => {
         if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
