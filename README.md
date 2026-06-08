@@ -44,6 +44,16 @@ npm install
 npm run dev
 ```
 
+### Background playback notes (web player)
+
+- The player now exposes a **Picture-in-Picture** action in the Play modal to keep playback active while multitasking.
+- Media Session metadata is set so compatible browsers can show lock-screen/notification playback controls.
+- Background playback is still browser and OS policy dependent:
+  - Desktop Chrome/Edge: usually continues when unfocused/minimized.
+  - Android Chrome: often continues, but may be paused by battery/app policies.
+  - iOS Safari: strict background limits; playback may stop unless Picture-in-Picture is active.
+- If playback is paused after the tab/app is backgrounded, use Picture-in-Picture or keep the player in the foreground.
+
 ### Chrome extension
 
 Load `extension/` as an unpacked extension in Chrome (see [docs/extension-dev.md](docs/extension-dev.md)).

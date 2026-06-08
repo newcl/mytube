@@ -52,6 +52,21 @@ function isMobilePlatform() {
   return isIOS() || /Android/i.test(navigator.userAgent);
 }
 
+type PictureInPictureVideo = HTMLVideoElement & {
+  webkitSupportsPresentationMode?: (mode: 'inline' | 'fullscreen' | 'picture-in-picture') => boolean;
+  webkitSetPresentationMode?: (mode: 'inline' | 'fullscreen' | 'picture-in-picture') => void;
+  webkitPresentationMode?: 'inline' | 'fullscreen' | 'picture-in-picture';
+};
+
+function detectPlaybackEnvironment() {
+  const ua = navigator.userAgent;
+  const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|Edg|EdgiOS|Firefox|FxiOS/i.test(ua);
+  if (isIOS() && isSafari) return 'iOS Safari';
+  if (/Android/i.test(ua) && /Chrome/i.test(ua)) return 'Android Chrome';
+  if (/Android/i.test(ua)) return 'Android browser';
+  return 'Desktop browser';
+}
+
 function looksLikeYouTubeUrl(text: string): boolean {
   return /(?:youtube\.com|youtu\.be)/i.test(text);
 }
@@ -247,6 +262,15 @@ function JobRow({
 }
 
 function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [pipAvailable, setPipAvailable] = useState(false);
+  const [pipActive, setPipActive] = useState(false);
+  const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
+  const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
+  const isDownloading = liveJob?.status === 'downloading';
+  const pct = liveJob?.progress?.percent ?? 0;
+  const env = detectPlaybackEnvironment();
+
   useEffect(() => {
     if (!job) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -254,11 +278,124 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     return () => document.removeEventListener('keydown', handler);
   }, [job, onClose]);
 
-  if (!job) return null;
-  // Use live job state so download progress updates while the modal is open
-  const liveJob = jobs.find(j => j.id === job.id) ?? job;
-  const isDownloading = liveJob.status === 'downloading';
-  const pct = liveJob.progress?.percent ?? 0;
+  useEffect(() => {
+    if (!job) return;
+    setBgPlaybackWarning('');
+    setPipActive(false);
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (!job) return;
+    const video = videoRef.current as PictureInPictureVideo | null;
+    if (!video) return;
+    const standardPiP = !!document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function';
+    const webkitPiP = !!video.webkitSupportsPresentationMode?.('picture-in-picture');
+    setPipAvailable(standardPiP || webkitPiP);
+
+    const onEnter = () => setPipActive(true);
+    const onLeave = () => setPipActive(false);
+    const onWebkitModeChanged = () => setPipActive(video.webkitPresentationMode === 'picture-in-picture');
+    video.addEventListener('enterpictureinpicture', onEnter);
+    video.addEventListener('leavepictureinpicture', onLeave);
+    video.addEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
+    return () => {
+      video.removeEventListener('enterpictureinpicture', onEnter);
+      video.removeEventListener('leavepictureinpicture', onLeave);
+      video.removeEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
+    };
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (!job || !liveJob) return;
+    const video = videoRef.current;
+    if (!video || !('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+
+    const artwork = liveJob.thumbnail_url ? [{ src: liveJob.thumbnail_url }] : [];
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: liveJob.title || 'MyTube video',
+      artist: liveJob.uploader || 'MyTube',
+      artwork,
+    });
+    navigator.mediaSession.setActionHandler('play', () => { void video.play(); });
+    navigator.mediaSession.setActionHandler('pause', () => video.pause());
+    navigator.mediaSession.setActionHandler('stop', () => video.pause());
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      video.currentTime = Math.max(0, video.currentTime - 10);
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      video.currentTime = Math.min(video.duration || Number.MAX_SAFE_INTEGER, video.currentTime + 10);
+    });
+    navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
+
+    const onPlay = () => { navigator.mediaSession.playbackState = 'playing'; };
+    const onPause = () => { navigator.mediaSession.playbackState = 'paused'; };
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    return () => {
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('stop', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+    };
+  }, [job?.id, liveJob?.thumbnail_url, liveJob?.title, liveJob?.uploader]);
+
+  useEffect(() => {
+    if (!job) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const warning = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
+    let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden' || video.paused || video.ended || pipActive) return;
+      pauseCheckTimer = setTimeout(() => {
+        if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
+          setBgPlaybackWarning(warning);
+        }
+      }, 1200);
+    };
+    const onPause = () => {
+      if (document.visibilityState === 'hidden' && !video.ended && !pipActive) {
+        setBgPlaybackWarning(warning);
+      }
+    };
+    const onPlay = () => setBgPlaybackWarning('');
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('play', onPlay);
+    return () => {
+      if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('play', onPlay);
+    };
+  }, [job?.id, pipActive]);
+
+  if (!job || !liveJob) return null;
+
+  async function handlePictureInPicture() {
+    const video = videoRef.current as PictureInPictureVideo | null;
+    if (!video) return;
+    try {
+      if (document.pictureInPictureElement === video) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (typeof video.requestPictureInPicture === 'function') {
+        await video.requestPictureInPicture();
+        return;
+      }
+      if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {
+        video.webkitSetPresentationMode?.('picture-in-picture');
+      }
+    } catch {
+      setBgPlaybackWarning('Could not start Picture-in-Picture on this browser. Keep this tab/app in the foreground to continue playback.');
+    }
+  }
 
   return (
     <>
@@ -274,7 +411,29 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
             ✕
           </button>
         </div>
+        <div className="px-4 py-2 bg-neutral-900 border-y border-white/10 space-y-2">
+          <div className="flex flex-wrap gap-2 items-center justify-between">
+            <p className="text-xs text-white/70">
+              Environment: {env}. Background playback support depends on browser/OS policy.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handlePictureInPicture}
+              disabled={!pipAvailable}
+              title={pipAvailable ? 'Open Picture-in-Picture' : 'Picture-in-Picture is not available in this browser'}
+            >
+              {pipActive ? 'PiP Active' : 'Picture-in-Picture'}
+            </Button>
+          </div>
+          {bgPlaybackWarning && (
+            <p className="text-xs text-amber-300">
+              {bgPlaybackWarning}
+            </p>
+          )}
+        </div>
         <video
+          ref={videoRef}
           controls
           autoPlay
           playsInline
