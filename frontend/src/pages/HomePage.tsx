@@ -30,6 +30,7 @@ import {
 
 const POLL_INTERVAL = 1500; // ms
 const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
+const BACKGROUND_PAUSE_CHECK_DELAY_MS = 1200;
 
 function statusColor(status: Job['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
@@ -324,7 +325,9 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       video.currentTime = Math.max(0, video.currentTime - 10);
     });
     navigator.mediaSession.setActionHandler('seekforward', () => {
-      video.currentTime = Math.min(video.duration || Number.MAX_SAFE_INTEGER, video.currentTime + 10);
+      const nextTime = video.currentTime + 10;
+      const hasFiniteDuration = Number.isFinite(video.duration) && video.duration > 0;
+      video.currentTime = hasFiniteDuration ? Math.min(video.duration, nextTime) : nextTime;
     });
     navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
 
@@ -355,7 +358,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
         if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
           setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
         }
-      }, 1200);
+      }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
     };
     const onPause = () => {
       if (document.visibilityState === 'hidden' && !video.ended && !pipActive) {
