@@ -29,6 +29,7 @@ import {
 } from '../components/ui/popover';
 
 const POLL_INTERVAL = 1500; // ms
+const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
 
 function statusColor(status: Job['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
@@ -282,7 +283,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     if (!job) return;
     setBgPlaybackWarning('');
     setPipActive(false);
-  }, [job?.id]);
+  }, [job]);
 
   useEffect(() => {
     if (!job) return;
@@ -303,7 +304,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       video.removeEventListener('leavepictureinpicture', onLeave);
       video.removeEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
     };
-  }, [job?.id]);
+  }, [job]);
 
   useEffect(() => {
     if (!job || !liveJob) return;
@@ -340,26 +341,25 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       navigator.mediaSession.setActionHandler('seekbackward', null);
       navigator.mediaSession.setActionHandler('seekforward', null);
     };
-  }, [job?.id, liveJob?.thumbnail_url, liveJob?.title, liveJob?.uploader]);
+  }, [job, liveJob?.thumbnail_url, liveJob?.title, liveJob?.uploader]);
 
   useEffect(() => {
     if (!job) return;
     const video = videoRef.current;
     if (!video) return;
-    const warning = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
     let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'hidden' || video.paused || video.ended || pipActive) return;
       pauseCheckTimer = setTimeout(() => {
         if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
-          setBgPlaybackWarning(warning);
+          setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
         }
       }, 1200);
     };
     const onPause = () => {
       if (document.visibilityState === 'hidden' && !video.ended && !pipActive) {
-        setBgPlaybackWarning(warning);
+        setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
       }
     };
     const onPlay = () => setBgPlaybackWarning('');
@@ -373,7 +373,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
       video.removeEventListener('pause', onPause);
       video.removeEventListener('play', onPlay);
     };
-  }, [job?.id, pipActive]);
+  }, [job, pipActive]);
 
   if (!job || !liveJob) return null;
 
