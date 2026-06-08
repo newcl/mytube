@@ -354,6 +354,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
 
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'hidden' || video.paused || video.ended || pipActive) return;
+      if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       pauseCheckTimer = setTimeout(() => {
         if (document.visibilityState === 'hidden' && video.paused && !video.ended && !pipActive) {
           setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
@@ -378,7 +379,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     };
   }, [job, pipActive]);
 
-  if (!job || !liveJob) return null;
+  if (!job) return null;
 
   async function handlePictureInPicture() {
     const video = videoRef.current as PictureInPictureVideo | null;
