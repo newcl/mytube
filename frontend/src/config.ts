@@ -49,7 +49,25 @@ export function getAppVersionShort(): string {
   if (version === 'dev') return 'dev';
   const m = version.match(/^([0-9a-f]{7,40})-(\d{8}T?\d{4}Z)$/i);
   if (m) {
-    return `${m[1].slice(0, 7)} ${m[2]}`;
+    const stamp = m[2].replace('T', '');
+    const yyyy = Number(stamp.slice(0, 4));
+    const mm = Number(stamp.slice(4, 6));
+    const dd = Number(stamp.slice(6, 8));
+    const hh = Number(stamp.slice(8, 10));
+    const min = Number(stamp.slice(10, 12));
+
+    const utcDate = new Date(Date.UTC(yyyy, mm - 1, dd, hh, min));
+    const local = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZoneName: 'short',
+    }).format(utcDate);
+
+    return `${m[1].slice(0, 7)} ${local}`;
   }
   return version;
 }
