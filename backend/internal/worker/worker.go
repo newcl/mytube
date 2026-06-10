@@ -158,6 +158,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		lastProgress time.Time
 		outputFile   string
 		pathWritten  bool // true once before_dl path stored in DB
+		metaWritten  bool // true once metadata from info.json stored in DB
 	)
 
 	done := make(chan struct{})
@@ -183,6 +184,20 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 					mu.Unlock()
 				}
 				continue
+			}
+
+			mu.Lock()
+			candidate := outputFile
+			canWriteMeta := pathWritten && !metaWritten && candidate != ""
+			mu.Unlock()
+			if canWriteMeta {
+				meta := readInfoJSON(candidate)
+				if meta.Title != "" || meta.Uploader != "" || meta.Thumbnail != "" || meta.Duration > 0 {
+					_ = dbpkg.SetJobMetadata(w.db, job.ID, meta.Title, meta.Uploader, meta.Thumbnail, meta.Duration)
+					mu.Lock()
+					metaWritten = true
+					mu.Unlock()
+				}
 			}
 
 			if p := parseProgress(line); p != nil {
@@ -221,6 +236,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		Title:        meta.Title,
 		Uploader:     meta.Uploader,
 		ThumbnailURL: meta.Thumbnail,
+		DurationSecs: meta.Duration,
 		Extractor:    meta.Extractor,
 		WebpageURL:   meta.WebpageURL,
 		LogTail:      logTail,
@@ -268,6 +284,7 @@ type videoMeta struct {
 	Title      string
 	Uploader   string
 	Thumbnail  string
+	Duration   float64
 	Extractor  string
 	WebpageURL string
 }
@@ -301,6 +318,7 @@ func readInfoJSON(videoPath string) videoMeta {
 		Title:      strVal(raw, "title"),
 		Uploader:   firstStrVal(raw, "uploader", "channel"),
 		Thumbnail:  strVal(raw, "thumbnail"),
+		Duration:   numVal(raw, "duration"),
 		Extractor:  strVal(raw, "extractor"),
 		WebpageURL: strVal(raw, "webpage_url"),
 	}
@@ -322,4 +340,21 @@ func firstStrVal(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func numVal(m map[string]any, key string) float64 {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	if s, ok := v.(string); ok {
+		f, err := strconv.ParseFloat(s, 64)
+		if err == nil {
+			return f
+		}
+	}
+	return 0
 }

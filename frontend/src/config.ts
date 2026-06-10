@@ -47,5 +47,9 @@ export function getAppVersion(): string {
 export function getAppVersionShort(): string {
   const version = getAppVersion();
   if (version === 'dev') return 'dev';
-  return version.slice(0, 7);
+  const m = version.match(/^([0-9a-f]{7,40})-(\d{8}T?\d{4}Z)$/i);
+  if (m) {
+    return `${m[1].slice(0, 7)} ${m[2]}`;
+  }
+  return version;
 }

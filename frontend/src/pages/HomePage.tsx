@@ -32,6 +32,47 @@ const POLL_INTERVAL = 1500; // ms
 const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
 const BACKGROUND_PAUSE_CHECK_DELAY_MS = 1200;
 
+const durationCache = new Map<number, string>();
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function getVideoDuration(jobId: number): Promise<string> {
+  const cached = durationCache.get(jobId);
+  if (cached !== undefined) return Promise.resolve(cached);
+
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    let settled = false;
+
+    const done = (value: string) => {
+      if (settled) return;
+      settled = true;
+      durationCache.set(jobId, value);
+      video.removeAttribute('src');
+      video.load();
+      resolve(value);
+    };
+
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => done(formatDuration(video.duration));
+    video.onerror = () => done('');
+    video.src = fileUrl(jobId);
+  });
+}
+
 function statusColor(status: Job['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
     case 'completed': return 'default';
@@ -148,6 +189,36 @@ function JobRow({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [videoDuration, setVideoDuration] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const apiDuration = formatDuration(job.duration_seconds ?? 0);
+    if (apiDuration) {
+      setVideoDuration(apiDuration);
+      return;
+    }
+
+    if (job.status !== 'completed' || !job.output_path) {
+      setVideoDuration('');
+      return;
+    }
+
+    const cached = durationCache.get(job.id);
+    if (cached !== undefined) {
+      setVideoDuration(cached);
+      return;
+    }
+
+    getVideoDuration(job.id).then((value) => {
+      if (!cancelled) setVideoDuration(value);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job.id, job.status, job.output_path, job.duration_seconds]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -189,14 +260,18 @@ function JobRow({
             />
           )}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <div className="flex items-start gap-2 mb-1">
               <Badge variant={statusColor(job.status)}>{job.status}</Badge>
-              <span className="text-sm font-medium truncate">
+              <span className="text-sm font-medium leading-snug break-words min-w-0">
                 {job.title || job.url}
               </span>
             </div>
-            {job.uploader && (
-              <p className="text-xs text-muted-foreground mb-1">{job.uploader}</p>
+            {(job.uploader || videoDuration) && (
+              <p className="text-xs text-muted-foreground mb-1">
+                {job.uploader}
+                {job.uploader && videoDuration ? ' · ' : ''}
+                {videoDuration ? `Duration ${videoDuration}` : ''}
+              </p>
             )}
             {job.status === 'downloading' && job.progress && (
               <div className="mt-1">
@@ -357,10 +432,38 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     if (!video) return;
     let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const requestAutoPiP = async () => {
+      if (video.paused || video.ended) return;
+
+      try {
+        if (
+          document.pictureInPictureEnabled &&
+          document.pictureInPictureElement !== video &&
+          typeof video.requestPictureInPicture === 'function'
+        ) {
+          await video.requestPictureInPicture();
+          return;
+        }
+
+        const pipVideo = video as PictureInPictureVideo;
+        if (
+          pipVideo.webkitSupportsPresentationMode?.('picture-in-picture') &&
+          pipVideo.webkitPresentationMode !== 'picture-in-picture'
+        ) {
+          pipVideo.webkitSetPresentationMode?.('picture-in-picture');
+        }
+      } catch {
+        // Some mobile browsers require fresh user activation before PiP requests.
+      }
+    };
+
     const onVisibilityChange = () => {
       const isInPiP = pipActiveRef.current
         || document.pictureInPictureElement === video
         || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
+      if (document.visibilityState === 'hidden') {
+        void requestAutoPiP();
+      }
       if (document.visibilityState !== 'hidden' || video.ended || isInPiP) return;
       if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       pauseCheckTimer = setTimeout(() => {
@@ -383,11 +486,13 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
     const onPlay = () => setBgPlaybackWarning('');
 
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', requestAutoPiP);
     video.addEventListener('pause', onPause);
     video.addEventListener('play', onPlay);
     return () => {
       if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', requestAutoPiP);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('play', onPlay);
     };

@@ -17,6 +17,7 @@ export interface Job {
   title: string;
   uploader: string;
   thumbnail_url: string;
+  duration_seconds?: number;
   output_path: string;
   error: string;
   progress: Progress | null;

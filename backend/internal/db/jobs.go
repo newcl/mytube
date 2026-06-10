@@ -37,6 +37,7 @@ type Job struct {
 	Title        string    `json:"title"`
 	Uploader     string    `json:"uploader"`
 	ThumbnailURL string    `json:"thumbnail_url"`
+	DurationSecs float64   `json:"duration_seconds"`
 	Extractor    string    `json:"extractor"`
 	WebpageURL   string    `json:"webpage_url"`
 	OutputPath   string    `json:"output_path"`
@@ -142,6 +143,7 @@ type CompletedFields struct {
 	Title        string
 	Uploader     string
 	ThumbnailURL string
+	DurationSecs float64
 	Extractor    string
 	WebpageURL   string
 	LogTail      string
@@ -155,11 +157,30 @@ func SetJobCompleted(db *sql.DB, id int64, f CompletedFields) error {
 		title        = ?,
 		uploader     = ?,
 		thumbnail_url = ?,
+		duration_seconds = ?,
 		extractor    = ?,
 		webpage_url  = ?,
 		log_tail     = ?
 	WHERE id = ?`,
-		f.OutputPath, f.Title, f.Uploader, f.ThumbnailURL, f.Extractor, f.WebpageURL, f.LogTail,
+		f.OutputPath, f.Title, f.Uploader, f.ThumbnailURL, f.DurationSecs, f.Extractor, f.WebpageURL, f.LogTail,
+		id,
+	)
+	return err
+}
+
+// SetJobMetadata updates metadata while a job is in progress.
+func SetJobMetadata(db *sql.DB, id int64, title, uploader, thumbnailURL string, durationSecs float64) error {
+	_, err := db.Exec(`UPDATE jobs SET
+		title = CASE WHEN ? <> '' THEN ? ELSE title END,
+		uploader = CASE WHEN ? <> '' THEN ? ELSE uploader END,
+		thumbnail_url = CASE WHEN ? <> '' THEN ? ELSE thumbnail_url END,
+		duration_seconds = CASE WHEN ? > 0 THEN ? ELSE duration_seconds END,
+		updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+	WHERE id = ?`,
+		title, title,
+		uploader, uploader,
+		thumbnailURL, thumbnailURL,
+		durationSecs, durationSecs,
 		id,
 	)
 	return err
@@ -229,6 +250,7 @@ func DequeueJobs(db *sql.DB, n int) ([]*Job, error) {
 
 const jobColumns = `id, url, status, created_at, updated_at,
 	COALESCE(title,''), COALESCE(uploader,''), COALESCE(thumbnail_url,''),
+	COALESCE(duration_seconds, 0),
 	COALESCE(extractor,''), COALESCE(webpage_url,''), COALESCE(output_path,''),
 	COALESCE(error_msg,''), COALESCE(progress_json,''), COALESCE(log_tail,'')`
 
@@ -244,6 +266,7 @@ func scanJob(s scanner) (*Job, error) {
 	if err := s.Scan(
 		&j.ID, &j.URL, &j.Status, &createdStr, &updatedStr,
 		&j.Title, &j.Uploader, &j.ThumbnailURL,
+		&j.DurationSecs,
 		&j.Extractor, &j.WebpageURL, &j.OutputPath,
 		&j.Error, &progressJSON, &j.LogTail,
 	); err != nil {

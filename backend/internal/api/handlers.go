@@ -23,6 +23,7 @@ type jobResponse struct {
 	Title        string          `json:"title"`
 	Uploader     string          `json:"uploader"`
 	ThumbnailURL string          `json:"thumbnail_url"`
+	DurationSecs float64         `json:"duration_seconds"`
 	OutputPath   string          `json:"output_path"`
 	Error        string          `json:"error"`
 	Progress     *dbpkg.Progress `json:"progress"`
@@ -38,6 +39,7 @@ func toJobResponse(j *dbpkg.Job) jobResponse {
 		Title:        j.Title,
 		Uploader:     j.Uploader,
 		ThumbnailURL: j.ThumbnailURL,
+		DurationSecs: j.DurationSecs,
 		OutputPath:   j.OutputPath,
 		Error:        j.Error,
 		Progress:     j.Progress,
