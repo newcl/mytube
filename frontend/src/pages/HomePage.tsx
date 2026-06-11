@@ -673,7 +673,6 @@ function SettingsModal() {
 export default function HomePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [url, setUrl] = useState('');
-  const [playlistTitle, setPlaylistTitle] = useState('');
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [playlistTimer, setPlaylistTimer] = useState<PlaylistTimer>(30);
   const [playlistIndex, setPlaylistIndex] = useState<number | null>(null);
@@ -851,8 +850,8 @@ export default function HomePage() {
 
   function handleAddPlaylistEntry() {
     if (!url.trim()) return;
-    addPlaylistItem(url, playlistTitle, jobs.find((j) => j.url === url.trim())?.id);
-    setPlaylistTitle('');
+    const job = jobs.find((j) => j.url === url.trim());
+    addPlaylistItem(url, job?.title, job?.id);
   }
 
   function handleEditPlaylistItem(index: number) {
@@ -1051,12 +1050,6 @@ export default function HomePage() {
           </div>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] mb-4">
             <div className="grid gap-2 sm:grid-cols-[1fr]">
-              <Input
-                value={playlistTitle}
-                onChange={(e) => setPlaylistTitle(e.target.value)}
-                placeholder="Playlist title (optional)"
-                disabled={submitting}
-              />
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
