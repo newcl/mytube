@@ -177,12 +177,13 @@ function DownloadButton({ job }: { job: Job }) {
 }
 
 function JobRow({
-  job, onPlay, onDeleted,
+  job, onPlay, onDeleted, onAddToPlaylist,
   selectMode = false, selected = false, onToggleSelect,
 }: {
   job: Job;
   onPlay: (job: Job) => void;
   onDeleted: (id: number) => void;
+  onAddToPlaylist?: (job: Job) => void;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
@@ -294,6 +295,11 @@ function JobRow({
               {job.output_path && job.status === 'completed' && (
                 <DownloadButton job={job} />
               )}
+              {job.output_path && job.status === 'completed' && onAddToPlaylist && (
+                <Button size="sm" variant="outline" onClick={() => onAddToPlaylist(job)}>
+                  + Playlist
+                </Button>
+              )}
               <a
                 href={job.url}
                 target="_blank"
@@ -338,7 +344,7 @@ function JobRow({
   );
 }
 
-function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onClose: () => void }) {
+function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
   const [pipAvailable, setPipAvailable] = useState(false);
@@ -563,6 +569,7 @@ function PlayerModal({ job, jobs, onClose }: { job: Job | null; jobs: Job[]; onC
           className="w-full flex-1 bg-black sm:flex-none sm:aspect-video object-contain"
           src={fileUrl(job.id)}
           key={job.id}
+          onEnded={onEnded}
         />
         {isDownloading && (
           <div className="px-4 py-2 bg-neutral-900 shrink-0">
@@ -629,9 +636,14 @@ function SettingsModal() {
 export default function HomePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [url, setUrl] = useState('');
+  const [playlistTitle, setPlaylistTitle] = useState('');
+  const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
+  const [playlistTimer, setPlaylistTimer] = useState<PlaylistTimer>(30);
+  const [playlistIndex, setPlaylistIndex] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [playingJob, setPlayingJob] = useState<Job | null>(null);
+  const playlistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Bulk select
@@ -660,6 +672,20 @@ export default function HomePage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchJobs]);
+
+  useEffect(() => {
+    setPlaylist(loadPlaylistItems());
+  }, []);
+
+  useEffect(() => {
+    savePlaylistItems(playlist);
+  }, [playlist]);
+
+  useEffect(() => {
+    return () => {
+      clearPlaylistTimer();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isMobilePlatform()) return;
@@ -713,6 +739,145 @@ export default function HomePage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function findPlaylistJob(item: PlaylistItem) {
+    return jobs.find((j) => item.jobId === j.id || j.url === item.url);
+  }
+
+  function clearPlaylistTimer() {
+    if (playlistTimerRef.current) {
+      clearTimeout(playlistTimerRef.current);
+      playlistTimerRef.current = null;
+    }
+  }
+
+  function stopPlaylistPlayback() {
+    clearPlaylistTimer();
+    setPlaylistIndex(null);
+    setPlayingJob(null);
+  }
+
+  async function startPlaylistPlayback(startIndex = 0) {
+    const nextIndex = playlist.slice(startIndex).findIndex((item) => {
+      const job = findPlaylistJob(item);
+      return job?.status === 'completed' && !!job.output_path;
+    });
+    if (nextIndex === -1) {
+      alert('No playable items found in the playlist. Add downloaded videos or wait for downloads to complete.');
+      return;
+    }
+
+    const itemIndex = startIndex + nextIndex;
+    const item = playlist[itemIndex];
+    const job = findPlaylistJob(item);
+    if (!job || job.status !== 'completed' || !job.output_path) return;
+
+    clearPlaylistTimer();
+    setPlaylistIndex(itemIndex);
+    setPlayingJob(job);
+
+    playlistTimerRef.current = setTimeout(() => {
+      stopPlaylistPlayback();
+    }, playlistTimer * 60 * 1000);
+  }
+
+  function advancePlaylist() {
+    if (playlistIndex === null) return;
+    const nextIndex = playlist.slice(playlistIndex + 1).findIndex((item) => {
+      const job = findPlaylistJob(item);
+      return job?.status === 'completed' && !!job.output_path;
+    });
+    if (nextIndex === -1) {
+      stopPlaylistPlayback();
+      return;
+    }
+    const itemIndex = playlistIndex + 1 + nextIndex;
+    const item = playlist[itemIndex];
+    const job = findPlaylistJob(item);
+    if (!job || job.status !== 'completed' || !job.output_path) {
+      stopPlaylistPlayback();
+      return;
+    }
+    setPlaylistIndex(itemIndex);
+    setPlayingJob(job);
+  }
+
+  function addPlaylistItem(urlToAdd: string, title?: string, jobId?: number) {
+    const trimmed = urlToAdd.trim();
+    if (!trimmed || !looksLikeYouTubeUrl(trimmed)) return;
+    setPlaylist((prev) => [
+      createPlaylistItem(trimmed, title || trimmed, jobId),
+      ...prev,
+    ]);
+  }
+
+  function handleAddPlaylistEntry() {
+    if (!url.trim()) return;
+    addPlaylistItem(url, playlistTitle, jobs.find((j) => j.url === url.trim())?.id);
+    setPlaylistTitle('');
+  }
+
+  function handleEditPlaylistItem(index: number) {
+    const item = playlist[index];
+    const updatedTitle = window.prompt('Edit playlist item title', item.title);
+    if (updatedTitle === null) return;
+    const updatedUrl = window.prompt('Edit playlist item URL', item.url);
+    if (updatedUrl === null) return;
+    const trimmedUrl = updatedUrl.trim();
+    if (!trimmedUrl || !looksLikeYouTubeUrl(trimmedUrl)) return;
+    setPlaylist((prev) => prev.map((current, i) => i === index ? {
+      ...current,
+      url: trimmedUrl,
+      title: updatedTitle.trim() || trimmedUrl,
+      jobId: jobs.find((j) => j.url === trimmedUrl)?.id,
+    } : current));
+  }
+
+  function handleMovePlaylistItem(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= playlist.length) return;
+    setPlaylist((prev) => {
+      const next = [...prev];
+      const temp = next[nextIndex];
+      next[nextIndex] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  }
+
+  function handleRemovePlaylistItem(index: number) {
+    setPlaylist((prev) => prev.filter((_, i) => i !== index));
+    if (playlistIndex === null) return;
+    if (index === playlistIndex) {
+      stopPlaylistPlayback();
+    } else if (index < playlistIndex) {
+      setPlaylistIndex((prev) => (prev === null ? null : prev - 1));
+    }
+  }
+
+  function handlePlayPlaylistItem(index: number) {
+    startPlaylistPlayback(index);
+  }
+
+  function handleClearPlaylist() {
+    if (!confirm('Clear the playlist?')) return;
+    setPlaylist([]);
+    stopPlaylistPlayback();
+  }
+
+  function handleAddJobToPlaylist(job: Job) {
+    if (!job.url) return;
+    const already = playlist.some((item) => item.jobId === job.id || item.url === job.url);
+    if (already) return;
+    addPlaylistItem(job.url, job.title || job.url, job.id);
+  }
+
+  function hasPlayablePlaylistItems() {
+    return playlist.some((item) => {
+      const job = findPlaylistJob(item);
+      return job?.status === 'completed' && !!job.output_path;
+    });
   }
 
   function exitSelectMode() {
@@ -783,27 +948,147 @@ export default function HomePage() {
 
       <main className="max-w-2xl mx-auto px-4 py-6">
         {/* Submit form */}
-        <form onSubmit={handleSubmit} className="flex gap-2 mb-6">
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste YouTube URL…"
-            className="flex-1"
-            disabled={submitting}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handlePasteIntoInput}
-            disabled={submitting}
-          >
-            Paste+Queue
-          </Button>
-          <Button type="submit" disabled={submitting || !url.trim()}>
-            {submitting ? '…' : 'Queue'}
-          </Button>
+        <form onSubmit={handleSubmit} className="grid gap-2 mb-6">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={playlistTitle}
+              onChange={(e) => setPlaylistTitle(e.target.value)}
+              placeholder="Playlist title (optional)"
+              disabled={submitting}
+            />
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Paste YouTube URL…"
+              className="flex-1"
+              disabled={submitting}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePasteIntoInput}
+              disabled={submitting}
+            >
+              Paste+Queue
+            </Button>
+            <Button type="submit" disabled={submitting || !url.trim()}>
+              {submitting ? '…' : 'Queue'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleAddPlaylistEntry}
+              disabled={!url.trim()}
+            >
+              + Playlist
+            </Button>
+          </div>
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
+
+        <section className="mb-6 rounded-lg border bg-background p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold">Playlist</h2>
+              <p className="text-xs text-muted-foreground">Keep a global playlist of videos, reorder entries, and stop playback after a timer.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => startPlaylistPlayback(0)}
+                disabled={!hasPlayablePlaylistItems()}
+              >
+                ▶ Play playlist
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleClearPlaylist}
+                disabled={playlist.length === 0}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] mb-4">
+            <div className="grid gap-2 sm:grid-cols-[1fr]">
+              <Input
+                value={playlistTitle}
+                onChange={(e) => setPlaylistTitle(e.target.value)}
+                placeholder="Playlist title (optional)"
+                disabled={submitting}
+              />
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Paste YouTube URL…"
+                disabled={submitting}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePasteIntoInput}
+                  disabled={submitting}
+                >
+                  Paste+Queue
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleAddPlaylistEntry}
+                  disabled={!url.trim()}
+                >
+                  + Playlist
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
+                <span>Stop after</span>
+                {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
+                  <Button
+                    key={minutes}
+                    size="sm"
+                    variant={playlistTimer === minutes ? 'default' : 'outline'}
+                    onClick={() => setPlaylistTimer(minutes)}
+                  >
+                    {minutes}m
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {playlist.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No playlist entries yet. Add videos from the URL above or from completed downloads.</p>
+          ) : (
+            <div className="space-y-2">
+              {playlist.map((item, index) => {
+                const job = findPlaylistJob(item);
+                const playable = !!job && job.status === 'completed' && !!job.output_path;
+                return (
+                  <div key={item.id} className="rounded-lg border p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{item.title}</p>
+                      <p className="text-xs text-muted-foreground break-words">{item.url}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {playable ? 'Playable' : job ? `${job.status} - waiting for download` : 'No downloaded version found'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleEditPlaylistItem(index)}>✏️</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, -1)} disabled={index === 0}>↑</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, 1)} disabled={index === playlist.length - 1}>↓</Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleRemovePlaylistItem(index)}>✖</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         {/* Bulk-action toolbar */}
         {jobs.length > 0 && (
@@ -862,8 +1147,12 @@ export default function HomePage() {
             <JobRow
               key={j.id}
               job={j}
-              onPlay={setPlayingJob}
+              onPlay={(job) => {
+                stopPlaylistPlayback();
+                setPlayingJob(job);
+              }}
               onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
+              onAddToPlaylist={handleAddJobToPlaylist}
               selectMode={selectMode}
               selected={selected.has(j.id)}
               onToggleSelect={() => handleToggleSelect(j.id)}
@@ -872,7 +1161,7 @@ export default function HomePage() {
         )}
       </main>
 
-      <PlayerModal job={playingJob} jobs={jobs} onClose={() => setPlayingJob(null)} />
+      <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); }} onEnded={advancePlaylist} />
     </div>
   );
 }
