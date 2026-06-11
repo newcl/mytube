@@ -848,12 +848,6 @@ export default function HomePage() {
     ]);
   }
 
-  function handleAddPlaylistEntry() {
-    if (!url.trim()) return;
-    const job = jobs.find((j) => j.url === url.trim());
-    addPlaylistItem(url, job?.title, job?.id);
-  }
-
   function handleEditPlaylistItem(index: number) {
     const item = playlist[index];
     const updatedTitle = window.prompt('Edit playlist item title', item.title);
@@ -1003,14 +997,6 @@ export default function HomePage() {
           <Button type="submit" disabled={submitting || !url.trim()}>
             {submitting ? '…' : 'Queue'}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleAddPlaylistEntry}
-            disabled={!url.trim()}
-          >
-            + Playlist
-          </Button>
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
@@ -1038,50 +1024,21 @@ export default function HomePage() {
               </Button>
             </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto] mb-4">
-            <div className="grid gap-2 sm:grid-cols-[1fr]">
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="Paste YouTube URL…"
-                disabled={submitting}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handlePasteIntoInput}
-                  disabled={submitting}
-                >
-                  Paste+Queue
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleAddPlaylistEntry}
-                  disabled={!url.trim()}
-                >
-                  + Playlist
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
-                <span>Stop after</span>
-                {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
-                  <Button
-                    key={minutes}
-                    size="sm"
-                    variant={playlistTimer === minutes ? 'default' : 'outline'}
-                    onClick={() => setPlaylistTimer(minutes)}
-                  >
-                    {minutes}m
-                  </Button>
-                ))}
-              </div>
-            </div>
+          <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mt-4">
+            <span>Stop after</span>
+            {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
+              <Button
+                key={minutes}
+                size="sm"
+                variant={playlistTimer === minutes ? 'default' : 'outline'}
+                onClick={() => setPlaylistTimer(minutes)}
+              >
+                {minutes}m
+              </Button>
+            ))}
           </div>
           {playlist.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No playlist entries yet. Add videos from the URL above or from completed downloads.</p>
+            <p className="text-sm text-muted-foreground mt-4">No playlist entries yet. Add videos by clicking + Playlist on completed downloads.</p>
           ) : (
             <div className="space-y-2">
               {playlist.map((item, index) => {
