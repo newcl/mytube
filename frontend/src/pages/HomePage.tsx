@@ -114,6 +114,43 @@ function looksLikeYouTubeUrl(text: string): boolean {
   return /(?:youtube\.com|youtu\.be)/i.test(text);
 }
 
+// Playlist storage and helpers
+const PLAYLIST_STORAGE_KEY = 'mytube_playlist';
+const PLAYLIST_TIMER_OPTIONS = [30, 45, 60, 90] as const;
+type PlaylistTimer = (typeof PLAYLIST_TIMER_OPTIONS)[number];
+type PlaylistItem = {
+  id: string;
+  jobId?: number;
+  url: string;
+  title: string;
+};
+
+function loadPlaylistItems(): PlaylistItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    return JSON.parse(localStorage.getItem(PLAYLIST_STORAGE_KEY) ?? '[]') as PlaylistItem[];
+  } catch {
+    return [];
+  }
+}
+
+function savePlaylistItems(items: PlaylistItem[]) {
+  try {
+    localStorage.setItem(PLAYLIST_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore
+  }
+}
+
+function createPlaylistItem(url: string, title?: string, jobId?: number): PlaylistItem {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    jobId,
+    url,
+    title: title?.trim() || url,
+  };
+}
+
 function DownloadButton({ job }: { job: Job }) {
   const [progress, setProgress] = useState<number | null>(null);
 
