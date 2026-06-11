@@ -984,43 +984,33 @@ export default function HomePage() {
 
       <main className="max-w-2xl mx-auto px-4 py-6">
         {/* Submit form */}
-        <form onSubmit={handleSubmit} className="grid gap-2 mb-6">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={playlistTitle}
-              onChange={(e) => setPlaylistTitle(e.target.value)}
-              placeholder="Playlist title (optional)"
-              disabled={submitting}
-            />
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="Paste YouTube URL…"
-              className="flex-1"
-              disabled={submitting}
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handlePasteIntoInput}
-              disabled={submitting}
-            >
-              Paste+Queue
-            </Button>
-            <Button type="submit" disabled={submitting || !url.trim()}>
-              {submitting ? '…' : 'Queue'}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAddPlaylistEntry}
-              disabled={!url.trim()}
-            >
-              + Playlist
-            </Button>
-          </div>
+        <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 mb-6">
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="Paste YouTube URL…"
+            className="flex-1"
+            disabled={submitting}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handlePasteIntoInput}
+            disabled={submitting}
+          >
+            Paste+Queue
+          </Button>
+          <Button type="submit" disabled={submitting || !url.trim()}>
+            {submitting ? '…' : 'Queue'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleAddPlaylistEntry}
+            disabled={!url.trim()}
+          >
+            + Playlist
+          </Button>
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
