@@ -986,14 +986,6 @@ export default function HomePage() {
             className="flex-1"
             disabled={submitting}
           />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handlePasteIntoInput}
-            disabled={submitting}
-          >
-            Paste+Queue
-          </Button>
           <Button type="submit" disabled={submitting || !url.trim()}>
             {submitting ? '…' : 'Queue'}
           </Button>
@@ -1139,6 +1131,15 @@ export default function HomePage() {
       </main>
 
       <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); }} onEnded={advancePlaylist} />
+
+      <Button
+        onClick={handlePasteIntoInput}
+        disabled={submitting}
+        className="fixed left-4 bottom-4 z-40 gap-2"
+        title="Paste YouTube URL from clipboard and queue"
+      >
+        📋 Paste+Queue
+      </Button>
     </div>
   );
 }
