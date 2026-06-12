@@ -215,13 +215,14 @@ function DownloadButton({ job }: { job: Job }) {
 }
 
 function JobRow({
-  job, onPlay, onDeleted, onAddToPlaylist,
+  job, onPlay, onDeleted, onAddToPlaylist, isInPlaylist,
   selectMode = false, selected = false, onToggleSelect,
 }: {
   job: Job;
   onPlay: (job: Job) => void;
   onDeleted: (id: number) => void;
   onAddToPlaylist?: (job: Job) => boolean;
+  isInPlaylist?: boolean;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
@@ -344,11 +345,12 @@ function JobRow({
               {job.output_path && job.status === 'completed' && onAddToPlaylist && (
                 <Button
                   size="sm"
-                  variant={playlistFeedback === 'added' ? 'default' : 'outline'}
-                  className={playlistFeedback === 'already' ? 'opacity-60' : ''}
+                  variant={isInPlaylist || playlistFeedback === 'added' ? 'default' : 'outline'}
+                  className={!isInPlaylist && playlistFeedback === 'already' ? 'opacity-60' : ''}
+                  disabled={isInPlaylist}
                   onClick={(e) => {
+                    if (isInPlaylist) return;
                     (e.currentTarget as HTMLButtonElement).blur();
-                    if (playlistFeedback) return;
                     const added = onAddToPlaylist(job);
                     if (added) {
                       setPlaylistFeedback('added');
@@ -359,7 +361,7 @@ function JobRow({
                     }
                   }}
                 >
-                  {playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
+                  {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
                 </Button>
               )}
               <a
@@ -1092,6 +1094,7 @@ export default function HomePage() {
                   }}
                   onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
                   onAddToPlaylist={handleAddJobToPlaylist}
+                  isInPlaylist={playlist.some((item) => item.jobId === j.id || item.url === j.url)}
                   selectMode={selectMode}
                   selected={selected.has(j.id)}
                   onToggleSelect={() => handleToggleSelect(j.id)}
