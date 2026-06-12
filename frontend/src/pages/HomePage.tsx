@@ -27,6 +27,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '../components/ui/popover';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 const POLL_INTERVAL = 1500; // ms
 const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
@@ -999,142 +1000,157 @@ export default function HomePage() {
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
-        <section className="mb-6 rounded-lg border bg-background p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <div>
-              <h2 className="text-sm font-semibold">Playlist</h2>
-              <p className="text-xs text-muted-foreground">Keep a global playlist of videos, reorder entries, and stop playback after a timer.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                onClick={() => startPlaylistPlayback(0)}
-                disabled={!hasPlayablePlaylistItems()}
-              >
-                ▶ Play playlist
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleClearPlaylist}
-                disabled={playlist.length === 0}
-              >
-                Clear
-              </Button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mt-4">
-            <span>Stop after</span>
-            {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
-              <Button
-                key={minutes}
-                size="sm"
-                variant={playlistTimer === minutes ? 'default' : 'outline'}
-                onClick={() => setPlaylistTimer(minutes)}
-              >
-                {minutes}m
-              </Button>
-            ))}
-          </div>
-          {playlist.length === 0 ? (
-            <p className="text-sm text-muted-foreground mt-4">No playlist entries yet. Add videos by clicking + Playlist on completed downloads.</p>
-          ) : (
-            <div className="space-y-2">
-              {playlist.map((item, index) => {
-                const job = findPlaylistJob(item);
-                const playable = !!job && job.status === 'completed' && !!job.output_path;
-                return (
-                  <div key={item.id} className="rounded-lg border p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{item.title}</p>
-                      <p className="text-xs text-muted-foreground break-words">{item.url}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {playable ? 'Playable' : job ? `${job.status} - waiting for download` : 'No downloaded version found'}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
-                      <Button size="sm" variant="outline" onClick={() => handleEditPlaylistItem(index)}>✏️</Button>
-                      <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, -1)} disabled={index === 0}>↑</Button>
-                      <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, 1)} disabled={index === playlist.length - 1}>↓</Button>
-                      <Button size="sm" variant="destructive" onClick={() => handleRemovePlaylistItem(index)}>✖</Button>
+        <Tabs defaultValue="videos">
+          <TabsList className="w-full mb-4">
+            <TabsTrigger value="videos" className="flex-1">
+              Videos{jobs.length > 0 ? ` (${jobs.length})` : ''}
+            </TabsTrigger>
+            <TabsTrigger value="playlist" className="flex-1">
+              Playlist{playlist.length > 0 ? ` (${playlist.length})` : ''}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="videos">
+            {/* Bulk-action toolbar */}
+            {jobs.length > 0 && (
+              <div className="mb-4 pb-3 border-b">
+                {!selectMode ? (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button size="sm" variant="outline" className="w-fit" onClick={() => setSelectMode(true)}>☑ Select</Button>
+                    <div className="flex items-center gap-2 sm:ml-auto">
+                      <input
+                        type="date"
+                        value={beforeDate}
+                        onChange={e => setBeforeDate(e.target.value)}
+                        className="text-sm border rounded px-2 py-1 bg-background h-8 flex-1 sm:flex-none"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive hover:text-destructive-foreground whitespace-nowrap"
+                        disabled={!beforeDate}
+                        onClick={handleDeleteBefore}
+                      >
+                        🗑 Delete before date
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline"
+                      onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
+                      Select All
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      onClick={() => setSelected(new Set())}
+                      disabled={selected.size === 0}>
+                      Deselect All
+                    </Button>
+                    <Button size="sm" variant="destructive"
+                      onClick={handleBulkDelete}
+                      disabled={selected.size === 0 || bulkDeleting}>
+                      {bulkDeleting ? '…' : `Delete (${selected.size})`}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
+                  </div>
+                )}
+              </div>
+            )}
 
-        {/* Bulk-action toolbar */}
-        {jobs.length > 0 && (
-          <div className="mb-4 pb-3 border-b">
-            {!selectMode ? (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Button size="sm" variant="outline" className="w-fit" onClick={() => setSelectMode(true)}>☑ Select</Button>
-                <div className="flex items-center gap-2 sm:ml-auto">
-                  <input
-                    type="date"
-                    value={beforeDate}
-                    onChange={e => setBeforeDate(e.target.value)}
-                    className="text-sm border rounded px-2 py-1 bg-background h-8 flex-1 sm:flex-none"
-                  />
+            {/* Job list */}
+            {jobs.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-12">
+                <p className="text-muted-foreground text-sm">No downloads yet. Paste a YouTube URL above.</p>
+                <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
+              </div>
+            ) : (
+              jobs.map((j) => (
+                <JobRow
+                  key={j.id}
+                  job={j}
+                  onPlay={(job) => {
+                    stopPlaylistPlayback();
+                    setPlayingJob(job);
+                  }}
+                  onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
+                  onAddToPlaylist={handleAddJobToPlaylist}
+                  selectMode={selectMode}
+                  selected={selected.has(j.id)}
+                  onToggleSelect={() => handleToggleSelect(j.id)}
+                />
+              ))
+            )}
+          </TabsContent>
+
+          <TabsContent value="playlist">
+            <section className="rounded-lg border bg-background p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold">Playlist</h2>
+                  <p className="text-xs text-muted-foreground">Keep a global playlist of videos, reorder entries, and stop playback after a timer.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => startPlaylistPlayback(0)}
+                    disabled={!hasPlayablePlaylistItems()}
+                  >
+                    ▶ Play playlist
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-destructive hover:bg-destructive hover:text-destructive-foreground whitespace-nowrap"
-                    disabled={!beforeDate}
-                    onClick={handleDeleteBefore}
+                    onClick={handleClearPlaylist}
+                    disabled={playlist.length === 0}
                   >
-                    🗑 Delete before date
+                    Clear
                   </Button>
                 </div>
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline"
-                  onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
-                  Select All
-                </Button>
-                <Button size="sm" variant="outline"
-                  onClick={() => setSelected(new Set())}
-                  disabled={selected.size === 0}>
-                  Deselect All
-                </Button>
-                <Button size="sm" variant="destructive"
-                  onClick={handleBulkDelete}
-                  disabled={selected.size === 0 || bulkDeleting}>
-                  {bulkDeleting ? '…' : `Delete (${selected.size})`}
-                </Button>
-                <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
+              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mt-4">
+                <span>Stop after</span>
+                {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
+                  <Button
+                    key={minutes}
+                    size="sm"
+                    variant={playlistTimer === minutes ? 'default' : 'outline'}
+                    onClick={() => setPlaylistTimer(minutes)}
+                  >
+                    {minutes}m
+                  </Button>
+                ))}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Job list */}
-        {jobs.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <p className="text-muted-foreground text-sm">No downloads yet. Paste a YouTube URL above.</p>
-            <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
-          </div>
-        ) : (
-          jobs.map((j) => (
-            <JobRow
-              key={j.id}
-              job={j}
-              onPlay={(job) => {
-                stopPlaylistPlayback();
-                setPlayingJob(job);
-              }}
-              onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
-              onAddToPlaylist={handleAddJobToPlaylist}
-              selectMode={selectMode}
-              selected={selected.has(j.id)}
-              onToggleSelect={() => handleToggleSelect(j.id)}
-            />
-          ))
-        )}
+              {playlist.length === 0 ? (
+                <p className="text-sm text-muted-foreground mt-4">No playlist entries yet. Add videos by clicking + Playlist on completed downloads.</p>
+              ) : (
+                <div className="space-y-2">
+                  {playlist.map((item, index) => {
+                    const job = findPlaylistJob(item);
+                    const playable = !!job && job.status === 'completed' && !!job.output_path;
+                    return (
+                      <div key={item.id} className="rounded-lg border p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{item.title}</p>
+                          <p className="text-xs text-muted-foreground break-words">{item.url}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {playable ? 'Playable' : job ? `${job.status} - waiting for download` : 'No downloaded version found'}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
+                          <Button size="sm" variant="outline" onClick={() => handleEditPlaylistItem(index)}>✏️</Button>
+                          <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, -1)} disabled={index === 0}>↑</Button>
+                          <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, 1)} disabled={index === playlist.length - 1}>↓</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleRemovePlaylistItem(index)}>✖</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+        </Tabs>
       </main>
 
       <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); }} onEnded={advancePlaylist} />
