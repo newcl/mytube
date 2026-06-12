@@ -221,7 +221,7 @@ function JobRow({
   job: Job;
   onPlay: (job: Job) => void;
   onDeleted: (id: number) => void;
-  onAddToPlaylist?: (job: Job) => void;
+  onAddToPlaylist?: (job: Job) => boolean;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
@@ -229,6 +229,7 @@ function JobRow({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
+  const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -341,8 +342,24 @@ function JobRow({
                 <DownloadButton job={job} />
               )}
               {job.output_path && job.status === 'completed' && onAddToPlaylist && (
-                <Button size="sm" variant="outline" onClick={() => onAddToPlaylist(job)}>
-                  + Playlist
+                <Button
+                  size="sm"
+                  variant={playlistFeedback === 'added' ? 'default' : 'outline'}
+                  className={playlistFeedback === 'already' ? 'opacity-60' : ''}
+                  onClick={(e) => {
+                    (e.currentTarget as HTMLButtonElement).blur();
+                    if (playlistFeedback) return;
+                    const added = onAddToPlaylist(job);
+                    if (added) {
+                      setPlaylistFeedback('added');
+                      setTimeout(() => setPlaylistFeedback(null), 1500);
+                    } else {
+                      setPlaylistFeedback('already');
+                      setTimeout(() => setPlaylistFeedback(null), 1200);
+                    }
+                  }}
+                >
+                  {playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
                 </Button>
               )}
               <a
@@ -904,11 +921,12 @@ export default function HomePage() {
     stopPlaylistPlayback();
   }
 
-  function handleAddJobToPlaylist(job: Job) {
-    if (!job.url) return;
+  function handleAddJobToPlaylist(job: Job): boolean {
+    if (!job.url) return false;
     const already = playlist.some((item) => item.jobId === job.id || item.url === job.url);
-    if (already) return;
+    if (already) return false;
     addPlaylistItem(job.url, job.title || job.url, job.id);
+    return true;
   }
 
   function hasPlayablePlaylistItems() {
