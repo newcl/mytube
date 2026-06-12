@@ -280,8 +280,15 @@ function JobRow({
       } ${selected ? 'ring-2 ring-primary bg-primary/5' : ''}`}
       onClick={selectMode ? onToggleSelect : undefined}
     >
-      <CardContent className="p-3">
-        <div className="flex gap-3 items-start">
+      <CardContent className="overflow-hidden p-0">
+        {job.thumbnail_url && (
+          <img
+            src={job.thumbnail_url}
+            alt=""
+            className="w-full h-40 sm:hidden object-cover"
+          />
+        )}
+        <div className="flex gap-3 items-start p-3">
           {selectMode && (
             <input
               type="checkbox"
@@ -294,7 +301,7 @@ function JobRow({
             <img
               src={job.thumbnail_url}
               alt=""
-              className="w-24 h-14 object-cover rounded flex-shrink-0"
+              className="w-24 h-14 object-cover rounded flex-shrink-0 hidden sm:block"
             />
           )}
           <div className="flex-1 min-w-0">
@@ -325,7 +332,7 @@ function JobRow({
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            {!selectMode && <div className="flex flex-wrap gap-1.5 mt-2">
+            {!selectMode && <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5 mt-2">
               {job.output_path && (
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
