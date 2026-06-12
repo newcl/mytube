@@ -504,21 +504,23 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
 
     const requestAutoPiP = async () => {
       if (video.paused || video.ended) return;
+      const pipVideo = video as PictureInPictureVideo;
+      if (
+        document.pictureInPictureElement === video ||
+        pipVideo.webkitPresentationMode === 'picture-in-picture'
+      ) return;
 
       try {
         if (
           document.pictureInPictureEnabled &&
-          document.pictureInPictureElement !== video &&
           typeof video.requestPictureInPicture === 'function'
         ) {
           await video.requestPictureInPicture();
           return;
         }
 
-        const pipVideo = video as PictureInPictureVideo;
         if (
-          pipVideo.webkitSupportsPresentationMode?.('picture-in-picture') &&
-          pipVideo.webkitPresentationMode !== 'picture-in-picture'
+          pipVideo.webkitSupportsPresentationMode?.('picture-in-picture')
         ) {
           pipVideo.webkitSetPresentationMode?.('picture-in-picture');
         }
@@ -533,6 +535,12 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
         || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
       if (document.visibilityState === 'hidden') {
         void requestAutoPiP();
+        if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
+        pauseCheckTimer = setTimeout(() => {
+          if (document.visibilityState === 'hidden' && video.paused && !video.ended) {
+            video.play().catch(() => {});
+          }
+        }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
       }
       if (document.visibilityState !== 'hidden' || video.ended || isInPiP) return;
       if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
@@ -546,10 +554,14 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
       }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
     };
     const onPause = () => {
-      const isInPiP = pipActiveRef.current
-        || document.pictureInPictureElement === video
-        || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
-      if (document.visibilityState === 'hidden' && !video.ended && !isInPiP) {
+      if (document.visibilityState === 'hidden' && !video.ended) {
+        const isInPiP = pipActiveRef.current
+          || document.pictureInPictureElement === video
+          || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
+        if (isInPiP) {
+          video.play().catch(() => {});
+          return;
+        }
         setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
       }
     };
@@ -1149,20 +1161,27 @@ export default function HomePage() {
                     const job = findPlaylistJob(item);
                     const playable = !!job && job.status === 'completed' && !!job.output_path;
                     return (
-                      <div key={item.id} className="rounded-lg border p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium truncate">{item.title}</p>
-                          <p className="text-xs text-muted-foreground break-words">{item.url}</p>
+                      <div key={item.id} className="rounded-lg border p-2 flex gap-3 items-start">
+                        {job?.thumbnail_url ? (
+                          <img src={job.thumbnail_url} alt="" className="w-20 h-12 object-cover rounded flex-shrink-0" />
+                        ) : (
+                          <div className="w-20 h-12 rounded bg-muted flex-shrink-0 flex items-center justify-center">
+                            <span className="text-xs text-muted-foreground">🎬</span>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.title}</p>
+                          <p className="text-xs text-muted-foreground truncate">{item.url}</p>
                           <p className="text-xs text-muted-foreground">
-                            {playable ? 'Playable' : job ? `${job.status} - waiting for download` : 'No downloaded version found'}
+                            {playable ? 'Ready to play' : job ? job.status : 'Not downloaded'}
                           </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
-                          <Button size="sm" variant="outline" onClick={() => handleEditPlaylistItem(index)}>✏️</Button>
-                          <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, -1)} disabled={index === 0}>↑</Button>
-                          <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, 1)} disabled={index === playlist.length - 1}>↓</Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleRemovePlaylistItem(index)}>✖</Button>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
+                            <Button size="sm" variant="outline" onClick={() => handleEditPlaylistItem(index)}>✏️</Button>
+                            <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, -1)} disabled={index === 0}>↑</Button>
+                            <Button size="sm" variant="outline" onClick={() => handleMovePlaylistItem(index, 1)} disabled={index === playlist.length - 1}>↓</Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleRemovePlaylistItem(index)}>✖</Button>
+                          </div>
                         </div>
                       </div>
                     );
