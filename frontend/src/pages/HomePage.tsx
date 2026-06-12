@@ -280,7 +280,7 @@ function JobRow({
       } ${selected ? 'ring-2 ring-primary bg-primary/5' : ''}`}
       onClick={selectMode ? onToggleSelect : undefined}
     >
-      <CardContent className="pt-4 pb-4">
+      <CardContent className="p-3">
         <div className="flex gap-3 items-start">
           {selectMode && (
             <input
@@ -298,11 +298,11 @@ function JobRow({
             />
           )}
           <div className="flex-1 min-w-0">
-            <div className="flex items-start gap-2 mb-1">
-              <Badge variant={statusColor(job.status)}>{job.status}</Badge>
-              <span className="text-sm font-medium leading-snug break-words min-w-0">
+            <div className="mb-1">
+              <Badge variant={statusColor(job.status)} className="mb-1">{job.status}</Badge>
+              <div className="text-sm font-medium leading-snug break-words min-w-0 line-clamp-2">
                 {job.title || job.url}
-              </span>
+              </div>
             </div>
             {(job.uploader || videoDuration) && (
               <p className="text-xs text-muted-foreground mb-1">
@@ -325,7 +325,7 @@ function JobRow({
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            {!selectMode && <div className="flex flex-wrap gap-2 mt-2">
+            {!selectMode && <div className="flex flex-wrap gap-1.5 mt-2">
               {job.output_path && (
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
               )}
@@ -341,7 +341,7 @@ function JobRow({
                 href={job.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background px-3 py-1 hover:bg-accent hover:text-accent-foreground"
+                className="inline-flex items-center justify-center rounded-md text-xs font-medium border border-input bg-background px-2 py-1 h-8 hover:bg-accent hover:text-accent-foreground"
                 title="Open original URL"
               >
                 🔗 Source
