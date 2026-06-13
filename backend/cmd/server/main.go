@@ -51,6 +51,8 @@ func main() {
 		r.Get("/api/jobs/{id}", h.GetJob)
 		r.Delete("/api/jobs/{id}", h.DeleteJob)
 		r.Get("/api/jobs/{id}/log", h.GetJobLog)
+		r.Get("/api/jobs/{id}/subtitles", h.GetSubtitles)
+		r.Get("/api/subtitles/search", h.SearchAllSubtitles)
 	})
 
 	// File serving — accept Bearer header OR ?token= query param

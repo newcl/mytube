@@ -103,6 +103,27 @@ func ListJobs(db *sql.DB, limit int) ([]*Job, error) {
 	return jobs, rows.Err()
 }
 
+// ListCompletedJobs returns all completed jobs (no limit).
+func ListCompletedJobs(db *sql.DB) ([]*Job, error) {
+	rows, err := db.Query(
+		`SELECT `+jobColumns+` FROM jobs WHERE status = 'completed' AND output_path <> '' ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list completed jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 // GetJobLog returns the log tail for a job.
 func GetJobLog(db *sql.DB, id int64) (string, error) {
 	var tail sql.NullString

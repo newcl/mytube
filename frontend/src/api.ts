@@ -69,3 +69,43 @@ export async function deleteJob(id: number): Promise<void> {
   const res = await apiFetch(`/api/jobs/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`${res.status}`);
 }
+
+// --- Subtitles ---------------------------------------------------------------
+
+export interface SubtitleEntry {
+  lang: string;
+  name: string;
+}
+
+export interface SubtitleList {
+  subtitles: SubtitleEntry[];
+  automatic_captions: SubtitleEntry[];
+}
+
+export interface SubtitleSearchResult {
+  job_id: number;
+  title: string;
+  uploader: string;
+  start: number;
+  duration: number;
+  text: string;
+}
+
+export interface SubtitleSearchResponse {
+  results: SubtitleSearchResult[];
+}
+
+export async function getSubtitles(jobId: number): Promise<SubtitleList> {
+  const res = await apiFetch(`/api/jobs/${jobId}/subtitles`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function searchSubtitles(q: string, lang?: string, limit?: number): Promise<SubtitleSearchResponse> {
+  const params = new URLSearchParams({ q });
+  if (lang) params.set('lang', lang);
+  if (limit) params.set('limit', String(limit));
+  const res = await apiFetch(`/api/subtitles/search?${params.toString()}`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}

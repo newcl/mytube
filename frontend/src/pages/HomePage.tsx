@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listJobs, createJob, deleteJob, type Job } from '../api';
+import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
   fileZipDownloadUrl,
@@ -48,6 +48,14 @@ function formatDuration(seconds: number): string {
   }
 
   return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatTimestamp(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function getVideoDuration(jobId: number): Promise<string> {
@@ -400,7 +408,7 @@ function JobRow({
   );
 }
 
-function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void }) {
+function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void; startTime?: number }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
   const [pipAvailable, setPipAvailable] = useState(false);
@@ -446,6 +454,29 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
       video.removeEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
     };
   }, [job]);
+
+  useEffect(() => {
+    if (startTime === undefined || startTime <= 0) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const seek = () => {
+      if (video.readyState >= 2) {
+        video.currentTime = startTime;
+        video.removeEventListener('loadedmetadata', seek);
+        video.removeEventListener('canplay', seek);
+      }
+    };
+    if (video.readyState >= 2) {
+      video.currentTime = startTime;
+    } else {
+      video.addEventListener('loadedmetadata', seek);
+      video.addEventListener('canplay', seek);
+      return () => {
+        video.removeEventListener('loadedmetadata', seek);
+        video.removeEventListener('canplay', seek);
+      };
+    }
+  }, [job, startTime]);
 
   useEffect(() => {
     if (!job || !liveJob) return;
@@ -725,6 +756,31 @@ export default function HomePage() {
   const [beforeDate, setBeforeDate] = useState('');
   const appVersion = getAppVersion();
   const appVersionShort = getAppVersionShort();
+
+  // Subtitle search
+  const [subQuery, setSubQuery] = useState('');
+  const [subLang, setSubLang] = useState('en');
+  const [subResults, setSubResults] = useState<SubtitleSearchResult[]>([]);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subSearched, setSubSearched] = useState(false);
+  const seekTimeRef = useRef<number | undefined>(undefined);
+
+  async function handleSubSearch(e?: React.FormEvent) {
+    e?.preventDefault();
+    const q = subQuery.trim();
+    if (!q) return;
+    setSubLoading(true);
+    setSubSearched(true);
+    setSubResults([]);
+    try {
+      const res = await searchSubtitles(q, subLang);
+      setSubResults(res.results ?? []);
+    } catch {
+      setSubResults([]);
+    } finally {
+      setSubLoading(false);
+    }
+  }
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -1027,6 +1083,60 @@ export default function HomePage() {
         </form>
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
+        {/* Subtitle search */}
+        <form onSubmit={handleSubSearch} className="flex flex-wrap items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Input
+              value={subQuery}
+              onChange={(e) => setSubQuery(e.target.value)}
+              placeholder="Search subtitles…"
+              className="flex-1 min-w-0"
+              disabled={subLoading}
+            />
+            <input
+              type="text"
+              value={subLang}
+              onChange={(e) => setSubLang(e.target.value)}
+              placeholder="en"
+              className="w-12 text-sm border rounded px-2 py-2 bg-background text-center"
+              disabled={subLoading}
+            />
+          </div>
+          <Button type="submit" disabled={subLoading || !subQuery.trim()}>
+            {subLoading ? '…' : 'Search'}
+          </Button>
+        </form>
+        {subSearched && (
+          <div className="mb-4">
+            <p className="text-xs text-muted-foreground mb-2">
+              {subResults.length} result{subResults.length !== 1 ? 's' : ''} for "{subQuery}"
+            </p>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {subResults.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    seekTimeRef.current = r.start;
+                    setPlayingJob(jobs.find(j => j.id === r.job_id) ?? null);
+                  }}
+                  className="w-full text-left rounded-lg border p-2 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                      {formatTimestamp(r.start)}
+                    </span>
+                    <span className="text-xs font-medium truncate">{r.title || 'Video'}</span>
+                  </div>
+                  <p className="text-sm leading-relaxed">{r.text}</p>
+                </button>
+              ))}
+              {subResults.length === 0 && (
+                <p className="text-sm text-muted-foreground">No results found.</p>
+              )}
+            </div>
+          </div>
+        )}
+
         <Tabs defaultValue="videos">
           <TabsList className="w-full mb-4">
             <TabsTrigger value="videos" className="flex-1">
@@ -1188,7 +1298,7 @@ export default function HomePage() {
         </Tabs>
       </main>
 
-      <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); }} onEnded={advancePlaylist} />
+      <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); seekTimeRef.current = undefined; }} onEnded={advancePlaylist} startTime={seekTimeRef.current} />
 
       <Button
         onClick={handlePasteIntoInput}
