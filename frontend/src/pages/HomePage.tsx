@@ -759,7 +759,6 @@ export default function HomePage() {
 
   // Subtitle search
   const [subQuery, setSubQuery] = useState('');
-  const [subLang, setSubLang] = useState('en');
   const [subResults, setSubResults] = useState<SubtitleSearchResult[]>([]);
   const [subLoading, setSubLoading] = useState(false);
   const [subSearched, setSubSearched] = useState(false);
@@ -773,7 +772,7 @@ export default function HomePage() {
     setSubSearched(true);
     setSubResults([]);
     try {
-      const res = await searchSubtitles(q, subLang);
+      const res = await searchSubtitles(q);
       setSubResults(res.results ?? []);
     } catch {
       setSubResults([]);
@@ -1084,24 +1083,14 @@ export default function HomePage() {
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
         {/* Subtitle search */}
-        <form onSubmit={handleSubSearch} className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Input
-              value={subQuery}
-              onChange={(e) => setSubQuery(e.target.value)}
-              placeholder="Search subtitles…"
-              className="flex-1 min-w-0"
-              disabled={subLoading}
-            />
-            <input
-              type="text"
-              value={subLang}
-              onChange={(e) => setSubLang(e.target.value)}
-              placeholder="en"
-              className="w-12 text-sm border rounded px-2 py-2 bg-background text-center"
-              disabled={subLoading}
-            />
-          </div>
+        <form onSubmit={handleSubSearch} className="flex items-center gap-2 mb-4">
+          <Input
+            value={subQuery}
+            onChange={(e) => setSubQuery(e.target.value)}
+            placeholder="Search subtitles…"
+            className="flex-1"
+            disabled={subLoading}
+          />
           <Button type="submit" disabled={subLoading || !subQuery.trim()}>
             {subLoading ? '…' : 'Search'}
           </Button>

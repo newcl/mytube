@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -83,9 +84,6 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lang := strings.TrimSpace(r.URL.Query().Get("lang"))
-	if lang == "" {
-		lang = "en"
-	}
 
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
@@ -118,29 +116,33 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		vttPath, err := ensureSubtitleFile(infoPath, lang)
+		vttPaths, err := findSubtitleVTTs(infoPath, lang)
 		if err != nil {
 			continue
 		}
 
-		cues, err := parseVTT(vttPath)
-		if err != nil {
-			continue
-		}
-
-		for _, cue := range cues {
+		for _, vttPath := range vttPaths {
 			if len(results) >= limit {
 				break
 			}
-			if strings.Contains(strings.ToLower(cue.Text), queryLower) {
-				results = append(results, SubtitleSearchResult{
-					JobID:    job.ID,
-					Title:    job.Title,
-					Uploader: job.Uploader,
-					Start:    cue.Start,
-					Duration: cue.Duration,
-					Text:     cue.Text,
-				})
+			cues, err := parseVTT(vttPath)
+			if err != nil {
+				continue
+			}
+			for _, cue := range cues {
+				if len(results) >= limit {
+					break
+				}
+				if strings.Contains(strings.ToLower(cue.Text), queryLower) {
+					results = append(results, SubtitleSearchResult{
+						JobID:    job.ID,
+						Title:    job.Title,
+						Uploader: job.Uploader,
+						Start:    cue.Start,
+						Duration: cue.Duration,
+						Text:     cue.Text,
+					})
+				}
 			}
 		}
 	}
@@ -254,6 +256,27 @@ func ensureSubtitleFile(infoPath, lang string) (string, error) {
 	}
 
 	return vttPath, nil
+}
+
+func findSubtitleVTTs(infoPath, lang string) ([]string, error) {
+	if lang != "" {
+		p, err := ensureSubtitleFile(infoPath, lang)
+		if err != nil {
+			return nil, err
+		}
+		return []string{p}, nil
+	}
+
+	base := strings.TrimSuffix(infoPath, ".info.json")
+	pattern := base + ".*.vtt"
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no subtitle files found")
+	}
+	return matches, nil
 }
 
 func findSubtitleURL(raw map[string]any, lang string) string {
