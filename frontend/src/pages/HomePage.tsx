@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -231,7 +231,6 @@ function JobRow({
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
-  const [titleExpanded, setTitleExpanded] = useState(false);
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
 
   useEffect(() => {
@@ -348,24 +347,11 @@ function JobRow({
               </p>
             )}
 
-            {/* title + info at bottom */}
+            {/* uploader + duration at bottom */}
             {job.status !== 'downloading' && job.status !== 'failed' && (
               <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3">
-                <p
-                  className={`text-sm font-medium text-white leading-snug cursor-pointer ${
-                    titleExpanded ? '' : 'line-clamp-1'
-                  }`}
-                  onClick={(e) => {
-                    if (selectMode) return;
-                    e.stopPropagation();
-                    setTitleExpanded(!titleExpanded);
-                  }}
-                  title={titleExpanded ? '' : 'Click to expand'}
-                >
-                  {job.title || job.url}
-                </p>
                 {(job.uploader || videoDuration) && (
-                  <p className="text-[11px] text-white/60 mt-0.5">
+                  <p className="text-[11px] text-white/60">
                     {job.uploader}
                     {job.uploader && videoDuration ? ' · ' : ''}
                     {videoDuration || ''}
@@ -374,9 +360,24 @@ function JobRow({
               </div>
             )}
 
-            {/* action buttons - visible on hover */}
+            {/* action buttons - visible on mobile, hover on desktop */}
             {!selectMode && (
-              <div className="absolute bottom-2 right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute bottom-2 right-2 z-20 flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="sm"
+                      className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-white/40 backdrop-blur"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Show title"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-3" align="end">
+                    <p className="text-sm font-medium">{job.title || job.url}</p>
+                  </PopoverContent>
+                </Popover>
                 {job.output_path && (
                   <Button
                     size="sm"
