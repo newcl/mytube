@@ -102,14 +102,6 @@ type PictureInPictureVideo = HTMLVideoElement & {
   webkitPresentationMode?: 'inline' | 'fullscreen' | 'picture-in-picture';
 };
 
-function detectPlaybackEnvironment() {
-  const ua = navigator.userAgent;
-  const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|Edg|EdgiOS|Firefox|FxiOS/i.test(ua);
-  if (isIOS() && isSafari) return 'iOS Safari';
-  if (/Android/i.test(ua) && /Chrome/i.test(ua)) return 'Android Chrome';
-  if (/Android/i.test(ua)) return 'Android browser';
-  return 'Desktop browser';
-}
 
 function looksLikeYouTubeUrl(text: string): boolean {
   return /(?:youtube\.com|youtu\.be)/i.test(text);
@@ -417,8 +409,6 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
-  const env = detectPlaybackEnvironment();
-
   useEffect(() => {
     if (!job) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -616,37 +606,42 @@ function PlayerModal({ job, jobs, onClose, onEnded }: { job: Job | null; jobs: J
             ✕
           </button>
         </div>
-        <div className="px-4 py-2 bg-neutral-900 border-y border-white/10 space-y-2">
-          <div className="flex flex-wrap gap-2 items-center justify-between">
-            <p className="text-xs text-white/70">
-              Environment: {env}. Background playback support depends on browser/OS policy.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handlePictureInPicture}
-              disabled={!pipAvailable}
-              title={pipAvailable ? 'Open Picture-in-Picture' : 'Picture-in-Picture is not available in this browser'}
-            >
-              {pipActive ? 'PiP Active' : 'Picture-in-Picture'}
-            </Button>
-          </div>
+        <div className="relative flex-1 bg-black sm:flex-none sm:aspect-video">
+          <video
+            ref={videoRef}
+            controls
+            autoPlay
+            playsInline
+            className="w-full h-full object-contain"
+            src={fileUrl(job.id)}
+            key={job.id}
+            onEnded={onEnded}
+          />
+          <button
+            onClick={handlePictureInPicture}
+            disabled={!pipAvailable}
+            className="absolute top-3 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            aria-label={pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}
+            title={pipAvailable ? (pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture') : 'Picture-in-Picture is not available in this browser'}
+          >
+            {pipActive ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M21 3a1 1 0 0 1 1 1v7h-2V5H4v14h6v2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h18zm-1 10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h8zm-1 2h-6v4h6v-4z"/>
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M21 3a1 1 0 0 1 1 1v7h-2V5H4v14h6v2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h18zm0 10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h8z"/>
+              </svg>
+            )}
+          </button>
           {bgPlaybackWarning && (
-            <p className="text-xs text-amber-300">
-              {bgPlaybackWarning}
-            </p>
+            <div className="absolute bottom-10 left-3 right-3 z-10">
+              <p className="text-xs text-amber-300 bg-black/70 px-3 py-1.5 rounded">
+                {bgPlaybackWarning}
+              </p>
+            </div>
           )}
         </div>
-        <video
-          ref={videoRef}
-          controls
-          autoPlay
-          playsInline
-          className="w-full flex-1 bg-black sm:flex-none sm:aspect-video object-contain"
-          src={fileUrl(job.id)}
-          key={job.id}
-          onEnded={onEnded}
-        />
         {isDownloading && (
           <div className="px-4 py-2 bg-neutral-900 shrink-0">
             <div className="flex justify-between text-xs text-white/60 mb-1">
