@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -231,6 +231,7 @@ function JobRow({
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
+  const [titleExpanded, setTitleExpanded] = useState(false);
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
 
   useEffect(() => {
@@ -278,134 +279,306 @@ function JobRow({
 
   return (
     <Card
-      className={`mb-3 transition-colors ${
+      className={`mb-3 group relative overflow-hidden rounded-lg transition-colors ${
         selectMode ? 'cursor-pointer select-none' : ''
-      } ${selected ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+      } ${selected ? 'ring-2 ring-primary' : ''}`}
       onClick={selectMode ? onToggleSelect : undefined}
     >
-      <CardContent className="overflow-hidden p-0">
-        {job.thumbnail_url && (
-          <img
-            src={job.thumbnail_url}
-            alt=""
-            className="w-full h-40 sm:hidden object-cover"
-          />
-        )}
-        <div className="flex gap-3 items-start p-3">
-          {selectMode && (
-            <input
-              type="checkbox"
-              checked={selected}
-              readOnly
-              className="mt-1 w-4 h-4 flex-shrink-0 cursor-pointer"
-            />
-          )}
-          {job.thumbnail_url && (
+      <CardContent className="p-0">
+        {job.thumbnail_url ? (
+          <div className="relative aspect-video bg-muted">
             <img
               src={job.thumbnail_url}
               alt=""
-              className="w-24 h-14 object-cover rounded flex-shrink-0 hidden sm:block"
+              className="w-full h-full object-cover"
+              loading="lazy"
             />
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="mb-1">
-              <Badge variant={statusColor(job.status)} className="mb-1">{job.status}</Badge>
+            {/* gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+            {/* select checkbox */}
+            {selectMode && (
+              <div className="absolute top-2 right-2 z-10">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  readOnly
+                  className="w-4 h-4 cursor-pointer accent-primary"
+                />
+              </div>
+            )}
+
+            {/* badges top-left */}
+            <div className="absolute top-2 left-2 z-10 flex gap-1">
+              <Badge variant={statusColor(job.status)} className="text-[10px] px-1.5 py-0">
+                {job.status}
+              </Badge>
               {job.subtitles_checked ? (
-                <Badge variant="secondary" className="mb-1 ml-1 gap-1">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
                   <Captions className="w-3 h-3" />
-                  Subs
                 </Badge>
               ) : (
-                <Badge variant="outline" className="mb-1 ml-1 gap-1 text-muted-foreground border-dashed">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 bg-black/40 text-white/80 border-white/20">
                   <CaptionsOff className="w-3 h-3" />
-                  Subs
                 </Badge>
               )}
-              <div className="text-sm font-medium leading-snug break-words min-w-0 line-clamp-2">
-                {job.title || job.url}
-              </div>
             </div>
-            {(job.uploader || videoDuration) && (
-              <p className="text-xs text-muted-foreground mb-1">
-                {job.uploader}
-                {job.uploader && videoDuration ? ' · ' : ''}
-                {videoDuration ? `Duration ${videoDuration}` : ''}
-              </p>
-            )}
+
+            {/* progress overlay */}
             {job.status === 'downloading' && job.progress && (
-              <div className="mt-1">
-                <Progress value={job.progress.percent} className="h-1.5 mb-1" />
-                <p className="text-xs text-muted-foreground">
+              <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3">
+                <Progress value={job.progress.percent} className="h-1 mb-1 [&>div]:bg-white" />
+                <p className="text-[11px] text-white/80">
                   {job.progress.percent.toFixed(1)}% · {job.progress.speed} · ETA {job.progress.eta}
                 </p>
               </div>
             )}
+
+            {/* queued state */}
             {job.status === 'queued' && (
-              <p className="text-xs text-muted-foreground">Waiting to start…</p>
+              <p className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 text-xs text-white/70">
+                Waiting to start…
+              </p>
             )}
+
+            {/* failed state */}
             {job.status === 'failed' && job.error && (
-              <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
+              <p className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 text-xs text-red-300 truncate">
+                {job.error}
+              </p>
             )}
-            {!selectMode && <div className="flex flex-wrap gap-1.5 mt-2">
-              {job.output_path && (
-                <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
-              )}
-              {job.output_path && job.status === 'completed' && onAddToPlaylist && (
+
+            {/* title + info at bottom */}
+            {job.status !== 'downloading' && job.status !== 'failed' && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3">
+                <p
+                  className={`text-sm font-medium text-white leading-snug cursor-pointer ${
+                    titleExpanded ? '' : 'line-clamp-1'
+                  }`}
+                  onClick={(e) => {
+                    if (selectMode) return;
+                    e.stopPropagation();
+                    setTitleExpanded(!titleExpanded);
+                  }}
+                  title={titleExpanded ? '' : 'Click to expand'}
+                >
+                  {job.title || job.url}
+                </p>
+                {(job.uploader || videoDuration) && (
+                  <p className="text-[11px] text-white/60 mt-0.5">
+                    {job.uploader}
+                    {job.uploader && videoDuration ? ' · ' : ''}
+                    {videoDuration || ''}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* action buttons - visible on hover */}
+            {!selectMode && (
+              <div className="absolute bottom-2 right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {job.output_path && (
+                  <Button
+                    size="sm"
+                    className="h-7 w-7 p-0 bg-white/90 hover:bg-white text-black backdrop-blur"
+                    onClick={(e) => { e.stopPropagation(); onPlay(job); }}
+                    title="Play"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+                {job.output_path && job.status === 'completed' && onAddToPlaylist && (
+                  <Button
+                    size="sm"
+                    className={`h-7 px-2 py-0 text-[11px] backdrop-blur ${
+                      isInPlaylist || playlistFeedback === 'added'
+                        ? 'bg-white/90 text-black'
+                        : 'bg-white/20 text-white hover:bg-white/40'
+                    } ${!isInPlaylist && playlistFeedback === 'already' ? 'opacity-60' : ''}`}
+                    disabled={isInPlaylist}
+                    onClick={(e) => {
+                      if (isInPlaylist) return;
+                      e.stopPropagation();
+                      (e.currentTarget as HTMLButtonElement).blur();
+                      const added = onAddToPlaylist(job);
+                      if (added) {
+                        setPlaylistFeedback('added');
+                        setTimeout(() => setPlaylistFeedback(null), 1500);
+                      } else {
+                        setPlaylistFeedback('already');
+                        setTimeout(() => setPlaylistFeedback(null), 1200);
+                      }
+                    }}
+                    title="Add to playlist"
+                  >
+                    <ListPlus className="w-3 h-3 mr-1" />
+                    {isInPlaylist ? 'Added' : playlistFeedback === 'added' ? 'Added' : playlistFeedback === 'already' ? 'In list' : 'Add'}
+                  </Button>
+                )}
                 <Button
                   size="sm"
-                  variant={isInPlaylist || playlistFeedback === 'added' ? 'default' : 'outline'}
-                  className={!isInPlaylist && playlistFeedback === 'already' ? 'opacity-60' : ''}
-                  disabled={isInPlaylist}
-                  onClick={(e) => {
-                    if (isInPlaylist) return;
-                    (e.currentTarget as HTMLButtonElement).blur();
-                    const added = onAddToPlaylist(job);
-                    if (added) {
-                      setPlaylistFeedback('added');
-                      setTimeout(() => setPlaylistFeedback(null), 1500);
-                    } else {
-                      setPlaylistFeedback('already');
-                      setTimeout(() => setPlaylistFeedback(null), 1200);
-                    }
-                  }}
+                  className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-red-500/80 hover:text-white backdrop-blur"
+                  disabled={deleting}
+                  onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                  title="Delete"
                 >
-                  {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
+                  <Trash2 className="w-3.5 h-3.5" />
                 </Button>
-              )}
-              <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
-                className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
-              >
-                {deleting ? '…' : '🗑 Delete'}
-              </Button>
-              <Popover open={moreOpen} onOpenChange={setMoreOpen}>
-                <PopoverTrigger asChild>
-                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="More actions">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-2" align="start">
-                  <div className="flex flex-col gap-1">
-                    {job.output_path && job.status === 'completed' && (
-                      <DownloadButton job={job} />
-                    )}
-                    <a
-                      href={job.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 rounded-md text-xs font-medium border border-input bg-background px-2 py-1.5 h-8 hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-                      title="Open original URL"
+                <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="sm"
+                      className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-white/40 backdrop-blur"
+                      onClick={(e) => e.stopPropagation()}
+                      title="More actions"
                     >
-                      🔗 Source
-                    </a>
-                    <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL" className="justify-start">
-                      📋 Copy URL
+                      <MoreHorizontal className="w-3.5 h-3.5" />
                     </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>}
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2" align="end">
+                    <div className="flex flex-col gap-1">
+                      {job.output_path && job.status === 'completed' && (
+                        <DownloadButton job={job} />
+                      )}
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-md text-xs font-medium border border-input bg-background px-2 py-1.5 h-8 hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+                        title="Open original URL"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Source
+                      </a>
+                      <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL" className="justify-start gap-2">
+                        <Copy className="w-3.5 h-3.5" />
+                        Copy URL
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          /* fallback: no thumbnail */
+          <div className="p-3">
+            <div className="flex gap-3 items-start">
+              {selectMode && (
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  readOnly
+                  className="mt-1 w-4 h-4 flex-shrink-0 cursor-pointer"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="mb-1">
+                  <Badge variant={statusColor(job.status)} className="mb-1">{job.status}</Badge>
+                  {job.subtitles_checked ? (
+                    <Badge variant="secondary" className="mb-1 ml-1 gap-1">
+                      <Captions className="w-3 h-3" />
+                      Subs
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="mb-1 ml-1 gap-1 text-muted-foreground border-dashed">
+                      <CaptionsOff className="w-3 h-3" />
+                      Subs
+                    </Badge>
+                  )}
+                  <div className="text-sm font-medium leading-snug line-clamp-2">
+                    {job.title || job.url}
+                  </div>
+                </div>
+                {(job.uploader || videoDuration) && (
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {job.uploader}
+                    {job.uploader && videoDuration ? ' · ' : ''}
+                    {videoDuration ? `Duration ${videoDuration}` : ''}
+                  </p>
+                )}
+                {job.status === 'downloading' && job.progress && (
+                  <div className="mt-1">
+                    <Progress value={job.progress.percent} className="h-1.5 mb-1" />
+                    <p className="text-xs text-muted-foreground">
+                      {job.progress.percent.toFixed(1)}% · {job.progress.speed} · ETA {job.progress.eta}
+                    </p>
+                  </div>
+                )}
+                {job.status === 'queued' && (
+                  <p className="text-xs text-muted-foreground">Waiting to start…</p>
+                )}
+                {job.status === 'failed' && job.error && (
+                  <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
+                )}
+                {!selectMode && <div className="flex flex-wrap gap-1.5 mt-2">
+                  {job.output_path && (
+                    <Button size="sm" onClick={() => onPlay(job)}>
+                      <Play className="w-3.5 h-3.5 mr-1" /> Play
+                    </Button>
+                  )}
+                  {job.output_path && job.status === 'completed' && onAddToPlaylist && (
+                    <Button
+                      size="sm"
+                      variant={isInPlaylist || playlistFeedback === 'added' ? 'default' : 'outline'}
+                      className={!isInPlaylist && playlistFeedback === 'already' ? 'opacity-60' : ''}
+                      disabled={isInPlaylist}
+                      onClick={(e) => {
+                        if (isInPlaylist) return;
+                        (e.currentTarget as HTMLButtonElement).blur();
+                        const added = onAddToPlaylist(job);
+                        if (added) {
+                          setPlaylistFeedback('added');
+                          setTimeout(() => setPlaylistFeedback(null), 1500);
+                        } else {
+                          setPlaylistFeedback('already');
+                          setTimeout(() => setPlaylistFeedback(null), 1200);
+                        }
+                      }}
+                    >
+                      <ListPlus className="w-3.5 h-3.5 mr-1" />
+                      {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
+                    className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    {deleting ? '…' : 'Delete'}
+                  </Button>
+                  <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                    <PopoverTrigger asChild>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="More actions">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-2" align="start">
+                      <div className="flex flex-col gap-1">
+                        {job.output_path && job.status === 'completed' && (
+                          <DownloadButton job={job} />
+                        )}
+                        <a
+                          href={job.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-md text-xs font-medium border border-input bg-background px-2 py-1.5 h-8 hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+                          title="Open original URL"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Source
+                        </a>
+                        <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL" className="justify-start gap-2">
+                          <Copy className="w-3.5 h-3.5" />
+                          Copy URL
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>}
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
