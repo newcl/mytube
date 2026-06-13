@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -28,7 +28,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '../components/ui/popover';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 const POLL_INTERVAL = 1500; // ms
 const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
@@ -943,6 +942,7 @@ export default function HomePage() {
 
   const [showQueueForm, setShowQueueForm] = useState(false);
   const [showSubSearch, setShowSubSearch] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
 
   async function handleSubSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -1249,26 +1249,90 @@ export default function HomePage() {
 
       <main className="max-w-2xl mx-auto px-4 py-6">
         {/* Action toolbar */}
-        <div className="flex gap-2 mb-4">
-          <Button
-            variant={showQueueForm ? 'default' : 'outline'}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => { setShowQueueForm(!showQueueForm); setShowSubSearch(false); }}
-          >
-            <Plus className="w-4 h-4" />
-            Add URL
-          </Button>
-          <Button
-            variant={showSubSearch ? 'default' : 'outline'}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => { setShowSubSearch(!showSubSearch); setShowQueueForm(false); }}
-          >
-            <Search className="w-4 h-4" />
-            Subtitles
-          </Button>
-        </div>
+        {!selectMode ? (
+          <div className="flex items-center gap-1.5 mb-4">
+            <Button
+              variant={showQueueForm ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => { setShowQueueForm(!showQueueForm); setShowSubSearch(false); }}
+              title="Add URL"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={showSubSearch ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => { setShowSubSearch(!showSubSearch); setShowQueueForm(false); }}
+              title="Search subtitles"
+            >
+              <Search className="w-4 h-4" />
+            </Button>
+            {jobs.length > 0 && (
+              <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => setSelectMode(true)} title="Select videos">
+                <CheckSquare className="w-4 h-4" />
+              </Button>
+            )}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <Button
+                variant={showPlaylist ? 'default' : 'outline'}
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setShowPlaylist(!showPlaylist)}
+                title={`Playlist${playlist.length > 0 ? ` (${playlist.length})` : ''}`}
+              >
+                <ListMusic className="w-4 h-4" />
+              </Button>
+              {jobs.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-8 w-8 p-0" title="Prune old videos">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-3" align="end">
+                    <p className="text-sm font-medium mb-2">Delete videos before date</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={beforeDate}
+                        onChange={e => setBeforeDate(e.target.value)}
+                        className="text-sm border rounded px-2 py-1 bg-background h-8"
+                      />
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={!beforeDate}
+                        onClick={handleDeleteBefore}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <Button size="sm" variant="outline"
+              onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
+              Select All
+            </Button>
+            <Button size="sm" variant="outline"
+              onClick={() => setSelected(new Set())}
+              disabled={selected.size === 0}>
+              Deselect All
+            </Button>
+            <Button size="sm" variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={selected.size === 0 || bulkDeleting}>
+              {bulkDeleting ? '…' : `Delete (${selected.size})`}
+            </Button>
+            <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
+          </div>
+        )}
 
         {/* Queue form (collapsible) */}
         {showQueueForm && (
@@ -1337,115 +1401,75 @@ export default function HomePage() {
           </>
         )}
 
-        <Tabs defaultValue="videos">
-          <TabsList className="w-full mb-4">
-            <TabsTrigger value="videos" className="flex-1">
-              Videos{jobs.length > 0 ? ` (${jobs.length})` : ''}
-            </TabsTrigger>
-            <TabsTrigger value="playlist" className="flex-1">
-              Playlist{playlist.length > 0 ? ` (${playlist.length})` : ''}
-            </TabsTrigger>
-          </TabsList>
+        {/* Job list */}
+        {jobs.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-12">
+            <p className="text-muted-foreground text-sm">No downloads yet. Click Add URL or paste a YouTube link.</p>
+            <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
+          </div>
+        ) : (
+          jobs.map((j) => (
+            <JobRow
+              key={j.id}
+              job={j}
+              onPlay={(job) => {
+                stopPlaylistPlayback();
+                setPlayingJob(job);
+              }}
+              onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
+              onAddToPlaylist={handleAddJobToPlaylist}
+              isInPlaylist={playlist.some((item) => item.jobId === j.id || item.url === j.url)}
+              selectMode={selectMode}
+              selected={selected.has(j.id)}
+              onToggleSelect={() => handleToggleSelect(j.id)}
+            />
+          ))
+        )}
+      </main>
 
-          <TabsContent value="videos">
-            {/* Bulk-action toolbar */}
-            {jobs.length > 0 && (
-              <div className="mb-4 pb-3 border-b">
-                {!selectMode ? (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Button size="sm" variant="outline" className="w-fit" onClick={() => setSelectMode(true)}>☑ Select</Button>
-                    <div className="flex items-center gap-2 sm:ml-auto">
-                      <input
-                        type="date"
-                        value={beforeDate}
-                        onChange={e => setBeforeDate(e.target.value)}
-                        className="text-sm border rounded px-2 py-1 bg-background h-8 flex-1 sm:flex-none"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-destructive hover:bg-destructive hover:text-destructive-foreground whitespace-nowrap"
-                        disabled={!beforeDate}
-                        onClick={handleDeleteBefore}
-                      >
-                        🗑 Delete before date
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline"
-                      onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
-                      Select All
-                    </Button>
-                    <Button size="sm" variant="outline"
-                      onClick={() => setSelected(new Set())}
-                      disabled={selected.size === 0}>
-                      Deselect All
-                    </Button>
-                    <Button size="sm" variant="destructive"
-                      onClick={handleBulkDelete}
-                      disabled={selected.size === 0 || bulkDeleting}>
-                      {bulkDeleting ? '…' : `Delete (${selected.size})`}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={exitSelectMode}>Cancel</Button>
-                  </div>
-                )}
-              </div>
-            )}
+      {/* Playlist slide-over panel */}
+      {showPlaylist && (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-black/50 transition-opacity"
+            onClick={() => setShowPlaylist(false)}
+          />
+          <div className="fixed right-0 top-0 bottom-0 z-40 w-80 sm:w-96 bg-background shadow-xl overflow-y-auto animate-in slide-in-from-right">
+            <div className="sticky top-0 bg-background border-b px-4 py-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold">
+                Playlist{playlist.length > 0 ? ` (${playlist.length})` : ''}
+              </h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={() => setShowPlaylist(false)}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
 
-            {/* Job list */}
-            {jobs.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-12">
-                <p className="text-muted-foreground text-sm">No downloads yet. Click Add URL or paste a YouTube link.</p>
-                <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
+            <div className="p-4">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Button
+                  size="sm"
+                  onClick={() => startPlaylistPlayback(0)}
+                  disabled={!hasPlayablePlaylistItems()}
+                >
+                  <Play className="w-3.5 h-3.5 mr-1" />
+                  Play all
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleClearPlaylist}
+                  disabled={playlist.length === 0}
+                >
+                  Clear
+                </Button>
               </div>
-            ) : (
-              jobs.map((j) => (
-                <JobRow
-                  key={j.id}
-                  job={j}
-                  onPlay={(job) => {
-                    stopPlaylistPlayback();
-                    setPlayingJob(job);
-                  }}
-                  onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
-                  onAddToPlaylist={handleAddJobToPlaylist}
-                  isInPlaylist={playlist.some((item) => item.jobId === j.id || item.url === j.url)}
-                  selectMode={selectMode}
-                  selected={selected.has(j.id)}
-                  onToggleSelect={() => handleToggleSelect(j.id)}
-                />
-              ))
-            )}
-          </TabsContent>
 
-          <TabsContent value="playlist">
-            <section className="rounded-lg border bg-background p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div>
-                  <h2 className="text-sm font-semibold">Playlist</h2>
-                  <p className="text-xs text-muted-foreground">Keep a global playlist of videos, reorder entries, and stop playback after a timer.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => startPlaylistPlayback(0)}
-                    disabled={!hasPlayablePlaylistItems()}
-                  >
-                    ▶ Play playlist
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleClearPlaylist}
-                    disabled={playlist.length === 0}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mt-4">
+              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mb-4">
                 <span>Stop after</span>
                 {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
                   <Button
@@ -1458,8 +1482,9 @@ export default function HomePage() {
                   </Button>
                 ))}
               </div>
+
               {playlist.length === 0 ? (
-                <p className="text-sm text-muted-foreground mt-4">No playlist entries yet. Add videos by clicking + Playlist on completed downloads.</p>
+                <p className="text-sm text-muted-foreground">No playlist entries yet. Add videos via the + button on completed downloads.</p>
               ) : (
                 <div className="space-y-2">
                   {playlist.map((item, index) => {
@@ -1493,10 +1518,10 @@ export default function HomePage() {
                   })}
                 </div>
               )}
-            </section>
-          </TabsContent>
-        </Tabs>
-      </main>
+            </div>
+          </div>
+        </>
+      )}
 
       <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); seekTimeRef.current = undefined; }} onEnded={advancePlaylist} startTime={seekTimeRef.current} />
 
