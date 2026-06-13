@@ -275,6 +275,41 @@ const jobColumns = `id, url, status, created_at, updated_at,
 	COALESCE(extractor,''), COALESCE(webpage_url,''), COALESCE(output_path,''),
 	COALESCE(error_msg,''), COALESCE(progress_json,''), COALESCE(log_tail,'')`
 
+// ---- subtitle backfill ------------------------------------------------------
+
+type SubtitleBackfillJob struct {
+	ID         int64
+	URL        string
+	OutputPath string
+}
+
+func GetJobsForSubtitleBackfill(db *sql.DB, limit int) ([]SubtitleBackfillJob, error) {
+	rows, err := db.Query(
+		`SELECT id, url, COALESCE(output_path,'') FROM jobs
+		 WHERE status = 'completed' AND output_path <> '' AND subtitles_checked = 0
+		 ORDER BY created_at ASC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []SubtitleBackfillJob
+	for rows.Next() {
+		var j SubtitleBackfillJob
+		if err := rows.Scan(&j.ID, &j.URL, &j.OutputPath); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+func MarkJobSubtitlesChecked(db *sql.DB, id int64) error {
+	_, err := db.Exec(`UPDATE jobs SET subtitles_checked = 1 WHERE id = ?`, id)
+	return err
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }

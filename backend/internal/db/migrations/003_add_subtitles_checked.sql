@@ -1,0 +1,1 @@
+ALTER TABLE jobs ADD COLUMN subtitles_checked INTEGER NOT NULL DEFAULT 0;
