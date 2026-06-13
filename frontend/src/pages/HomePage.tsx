@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -878,7 +878,9 @@ function SettingsModal() {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">⚙ Settings</Button>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Settings">
+          <Settings className="w-4 h-4" />
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -1232,8 +1234,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <img src="/mytube.svg" alt="" className="w-7 h-7" />
-          <h1 className="text-lg font-bold">MyTube</h1>
+          <img src="/mytube.svg" alt="MyTube" className="w-7 h-7" />
           <span
             className="text-[11px] uppercase tracking-wide rounded border border-border px-2 py-0.5 text-muted-foreground"
             title={`Build ${appVersion}`}
