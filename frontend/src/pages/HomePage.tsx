@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -228,7 +228,7 @@ function JobRow({
   selected?: boolean;
   onToggleSelect?: () => void;
 }) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
@@ -264,7 +264,6 @@ function JobRow({
 
   async function handleDelete() {
     setDeleting(true);
-    setConfirmOpen(false);
     try {
       await deleteJob(job.id);
       onDeleted(job.id);
@@ -311,6 +310,17 @@ function JobRow({
           <div className="flex-1 min-w-0">
             <div className="mb-1">
               <Badge variant={statusColor(job.status)} className="mb-1">{job.status}</Badge>
+              {job.subtitles_checked ? (
+                <Badge variant="secondary" className="mb-1 ml-1 gap-1">
+                  <Captions className="w-3 h-3" />
+                  Subs
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="mb-1 ml-1 gap-1 text-muted-foreground border-dashed">
+                  <CaptionsOff className="w-3 h-3" />
+                  Subs
+                </Badge>
+              )}
               <div className="text-sm font-medium leading-snug break-words min-w-0 line-clamp-2">
                 {job.title || job.url}
               </div>
@@ -336,12 +346,9 @@ function JobRow({
             {job.status === 'failed' && job.error && (
               <p className="text-xs text-destructive mt-1 truncate">{job.error}</p>
             )}
-            {!selectMode && <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5 mt-2">
+            {!selectMode && <div className="flex flex-wrap gap-1.5 mt-2">
               {job.output_path && (
                 <Button size="sm" onClick={() => onPlay(job)}>▶ Play</Button>
-              )}
-              {job.output_path && job.status === 'completed' && (
-                <DownloadButton job={job} />
               )}
               {job.output_path && job.status === 'completed' && onAddToPlaylist && (
                 <Button
@@ -365,42 +372,37 @@ function JobRow({
                   {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
                 </Button>
               )}
-              <a
-                href={job.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md text-xs font-medium border border-input bg-background px-2 py-1 h-8 hover:bg-accent hover:text-accent-foreground"
-                title="Open original URL"
+              <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
+                className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
               >
-                🔗 Source
-              </a>
-              <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL">
-                📋 Copy URL
+                {deleting ? '…' : '🗑 Delete'}
               </Button>
-              {job.status === 'completed' ? (
-                <Popover open={confirmOpen} onOpenChange={setConfirmOpen}>
-                  <PopoverTrigger asChild>
-                    <Button size="sm" variant="outline" disabled={deleting}
-                      className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="More actions">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-2" align="start">
+                  <div className="flex flex-col gap-1">
+                    {job.output_path && job.status === 'completed' && (
+                      <DownloadButton job={job} />
+                    )}
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-md text-xs font-medium border border-input bg-background px-2 py-1.5 h-8 hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+                      title="Open original URL"
                     >
-                      {deleting ? '…' : '🗑 Delete'}
+                      🔗 Source
+                    </a>
+                    <Button size="sm" variant="outline" onClick={handleCopyUrl} title="Copy source URL" className="justify-start">
+                      📋 Copy URL
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-3" align="end">
-                    <p className="text-sm font-medium mb-3">Delete this video?</p>
-                    <div className="flex gap-2 justify-end">
-                      <Button size="sm" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                      <Button size="sm" variant="destructive" onClick={handleDelete}>Delete</Button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              ) : (
-                <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
-                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                >
-                  {deleting ? '…' : '🗑 Delete'}
-                </Button>
-              )}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>}
           </div>
         </div>

@@ -40,10 +40,11 @@ type Job struct {
 	DurationSecs float64   `json:"duration_seconds"`
 	Extractor    string    `json:"extractor"`
 	WebpageURL   string    `json:"webpage_url"`
-	OutputPath   string    `json:"output_path"`
-	Error        string    `json:"error"`
-	Progress     *Progress `json:"progress,omitempty"`
-	LogTail      string    `json:"-"` // served separately
+	SubtitlesChecked bool     `json:"subtitles_checked"`
+	OutputPath       string    `json:"output_path"`
+	Error            string    `json:"error"`
+	Progress         *Progress `json:"progress,omitempty"`
+	LogTail          string    `json:"-"` // served separately
 }
 
 // FindActiveJobByURL returns the ID of an existing job for the given URL that
@@ -273,6 +274,7 @@ const jobColumns = `id, url, status, created_at, updated_at,
 	COALESCE(title,''), COALESCE(uploader,''), COALESCE(thumbnail_url,''),
 	COALESCE(duration_seconds, 0),
 	COALESCE(extractor,''), COALESCE(webpage_url,''), COALESCE(output_path,''),
+	COALESCE(subtitles_checked, 0),
 	COALESCE(error_msg,''), COALESCE(progress_json,''), COALESCE(log_tail,'')`
 
 // ---- subtitle backfill ------------------------------------------------------
@@ -324,6 +326,7 @@ func scanJob(s scanner) (*Job, error) {
 		&j.Title, &j.Uploader, &j.ThumbnailURL,
 		&j.DurationSecs,
 		&j.Extractor, &j.WebpageURL, &j.OutputPath,
+		&j.SubtitlesChecked,
 		&j.Error, &progressJSON, &j.LogTail,
 	); err != nil {
 		return nil, fmt.Errorf("scan job: %w", err)

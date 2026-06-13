@@ -18,6 +18,7 @@ export interface Job {
   uploader: string;
   thumbnail_url: string;
   duration_seconds?: number;
+  subtitles_checked: boolean;
   output_path: string;
   error: string;
   progress: Progress | null;
