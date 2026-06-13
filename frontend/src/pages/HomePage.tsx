@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Search, ClipboardPaste } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -764,6 +765,9 @@ export default function HomePage() {
   const [subSearched, setSubSearched] = useState(false);
   const seekTimeRef = useRef<number | undefined>(undefined);
 
+  const [showQueueForm, setShowQueueForm] = useState(false);
+  const [showSubSearch, setShowSubSearch] = useState(false);
+
   async function handleSubSearch(e?: React.FormEvent) {
     e?.preventDefault();
     const q = subQuery.trim();
@@ -1043,6 +1047,7 @@ export default function HomePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     await queueUrl(url);
+    setShowQueueForm(false);
   }
 
   const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'downloading');
@@ -1067,63 +1072,93 @@ export default function HomePage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {/* Submit form */}
-        <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 mb-6">
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste YouTube URL…"
-            className="flex-1"
-            disabled={submitting}
-          />
-          <Button type="submit" disabled={submitting || !url.trim()}>
-            {submitting ? '…' : 'Queue'}
+        {/* Action toolbar */}
+        <div className="flex gap-2 mb-4">
+          <Button
+            variant={showQueueForm ? 'default' : 'outline'}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => { setShowQueueForm(!showQueueForm); setShowSubSearch(false); }}
+          >
+            <Plus className="w-4 h-4" />
+            Add URL
           </Button>
-        </form>
+          <Button
+            variant={showSubSearch ? 'default' : 'outline'}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => { setShowSubSearch(!showSubSearch); setShowQueueForm(false); }}
+          >
+            <Search className="w-4 h-4" />
+            Subtitles
+          </Button>
+        </div>
+
+        {/* Queue form (collapsible) */}
+        {showQueueForm && (
+          <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 mb-4">
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Paste YouTube URL…"
+              className="flex-1"
+              disabled={submitting}
+              autoFocus
+            />
+            <Button type="submit" disabled={submitting || !url.trim()}>
+              {submitting ? '…' : 'Queue'}
+            </Button>
+          </form>
+        )}
         {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
-        {/* Subtitle search */}
-        <form onSubmit={handleSubSearch} className="flex items-center gap-2 mb-4">
-          <Input
-            value={subQuery}
-            onChange={(e) => setSubQuery(e.target.value)}
-            placeholder="Search subtitles…"
-            className="flex-1"
-            disabled={subLoading}
-          />
-          <Button type="submit" disabled={subLoading || !subQuery.trim()}>
-            {subLoading ? '…' : 'Search'}
-          </Button>
-        </form>
-        {subSearched && (
-          <div className="mb-4">
-            <p className="text-xs text-muted-foreground mb-2">
-              {subResults.length} result{subResults.length !== 1 ? 's' : ''} for "{subQuery}"
-            </p>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {subResults.map((r, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    seekTimeRef.current = r.start;
-                    setPlayingJob(jobs.find(j => j.id === r.job_id) ?? null);
-                  }}
-                  className="w-full text-left rounded-lg border p-2 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                      {formatTimestamp(r.start)}
-                    </span>
-                    <span className="text-xs font-medium truncate">{r.title || 'Video'}</span>
-                  </div>
-                  <p className="text-sm leading-relaxed">{r.text}</p>
-                </button>
-              ))}
-              {subResults.length === 0 && (
-                <p className="text-sm text-muted-foreground">No results found.</p>
-              )}
-            </div>
-          </div>
+        {/* Subtitle search (collapsible) */}
+        {showSubSearch && (
+          <>
+            <form onSubmit={handleSubSearch} className="flex items-center gap-2 mb-4">
+              <Input
+                value={subQuery}
+                onChange={(e) => setSubQuery(e.target.value)}
+                placeholder="Search subtitles…"
+                className="flex-1"
+                disabled={subLoading}
+                autoFocus
+              />
+              <Button type="submit" disabled={subLoading || !subQuery.trim()}>
+                {subLoading ? '…' : 'Search'}
+              </Button>
+            </form>
+            {subSearched && (
+              <div className="mb-4">
+                <p className="text-xs text-muted-foreground mb-2">
+                  {subResults.length} result{subResults.length !== 1 ? 's' : ''} for "{subQuery}"
+                </p>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {subResults.map((r, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        seekTimeRef.current = r.start;
+                        setPlayingJob(jobs.find(j => j.id === r.job_id) ?? null);
+                      }}
+                      className="w-full text-left rounded-lg border p-2 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {formatTimestamp(r.start)}
+                        </span>
+                        <span className="text-xs font-medium truncate">{r.title || 'Video'}</span>
+                      </div>
+                      <p className="text-sm leading-relaxed">{r.text}</p>
+                    </button>
+                  ))}
+                  {subResults.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No results found.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <Tabs defaultValue="videos">
@@ -1186,7 +1221,7 @@ export default function HomePage() {
             {/* Job list */}
             {jobs.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-12">
-                <p className="text-muted-foreground text-sm">No downloads yet. Paste a YouTube URL above.</p>
+                <p className="text-muted-foreground text-sm">No downloads yet. Click Add URL or paste a YouTube link.</p>
                 <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
               </div>
             ) : (
@@ -1292,10 +1327,11 @@ export default function HomePage() {
       <Button
         onClick={handlePasteIntoInput}
         disabled={submitting}
-        className="fixed left-4 bottom-4 z-40 gap-2"
+        className="fixed left-4 bottom-4 z-40 gap-2 shadow-lg"
         title="Paste YouTube URL from clipboard and queue"
       >
-        📋 Paste+Queue
+        <ClipboardPaste className="w-4 h-4" />
+        Paste + Queue
       </Button>
     </div>
   );
