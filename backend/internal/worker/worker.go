@@ -24,8 +24,8 @@ const (
 	logCapBytes          = 32 * 1024 // 32 KB cap for log tail
 	progressThrottle     = 500 * time.Millisecond
 	pollInterval         = 2 * time.Second
-	subBackfillInterval  = 10 * time.Minute
-	subBackfillBatchSize = 5
+	subBackfillInterval  = 1 * time.Minute
+	subBackfillBatchSize = 20
 )
 
 // Worker polls for queued jobs and runs them concurrently up to concurrency.
@@ -35,6 +35,7 @@ type Worker struct {
 	concurrency   int
 	cookieBrowser string // if set, use --cookies-from-browser <browser> instead of a cookie file
 	sem           chan struct{}
+	backfillMu    sync.Mutex
 }
 
 // New creates a new Worker.
@@ -372,11 +373,17 @@ func numVal(m map[string]any, key string) float64 {
 // ---- subtitle backfill -------------------------------------------------------
 
 func (w *Worker) backfillSubtitles(ctx context.Context) {
+	if !w.backfillMu.TryLock() {
+		return // previous run still in progress
+	}
+	defer w.backfillMu.Unlock()
+
 	jobs, err := dbpkg.GetJobsForSubtitleBackfill(w.db, subBackfillBatchSize)
 	if err != nil {
 		log.Printf("worker: subtitle backfill query: %v", err)
 		return
 	}
+	log.Printf("worker: subtitle backfill found %d unchecked jobs", len(jobs))
 	if len(jobs) == 0 {
 		return
 	}
