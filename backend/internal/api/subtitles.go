@@ -29,12 +29,6 @@ type SubtitleList struct {
 	AutomaticCaptions []SubtitleEntry `json:"automatic_captions"`
 }
 
-type SubtitleCue struct {
-	Start    float64 `json:"start"`
-	Duration float64 `json:"duration"`
-	Text     string  `json:"text"`
-}
-
 type SubtitleSearchResult struct {
 	JobID    int64   `json:"job_id"`
 	Title    string  `json:"title"`
@@ -46,6 +40,12 @@ type SubtitleSearchResult struct {
 
 type SubtitleSearchResponse struct {
 	Results []SubtitleSearchResult `json:"results"`
+}
+
+type SubtitleCue struct {
+	Start    float64
+	Duration float64
+	Text     string
 }
 
 func (h *Handler) GetSubtitles(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +116,11 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		vttPaths, err := findSubtitleVTTs(infoPath, lang)
-		if err != nil {
-			continue
+		vttPaths := findVTTFiles(infoPath, lang)
+		if len(vttPaths) == 0 && lang != "" {
+			if p, err := tryDownloadSub(infoPath, lang); err == nil {
+				vttPaths = []string{p}
+			}
 		}
 
 		for _, vttPath := range vttPaths {
@@ -169,6 +171,59 @@ func infoJSONPath(outputPath string) string {
 	return base + ".info.json"
 }
 
+func findVTTFiles(infoPath, lang string) []string {
+	base := strings.TrimSuffix(infoPath, ".info.json")
+	if lang != "" {
+		p := base + "." + lang + ".vtt"
+		if _, err := os.Stat(p); err == nil {
+			return []string{p}
+		}
+		return nil
+	}
+
+	pattern := base + ".*.vtt"
+	matches, _ := filepath.Glob(pattern)
+	return matches
+}
+
+func tryDownloadSub(infoPath, lang string) (string, error) {
+	vttPath := strings.TrimSuffix(infoPath, ".info.json") + "." + lang + ".vtt"
+
+	data, err := os.ReadFile(infoPath)
+	if err != nil {
+		return "", err
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", err
+	}
+
+	subURL := findSubtitleURL(raw, lang)
+	if subURL == "" {
+		return "", fmt.Errorf("no subtitle URL for %q", lang)
+	}
+
+	resp, err := downloadWithTimeout(subURL, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	f, err := os.Create(vttPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		os.Remove(vttPath)
+		return "", err
+	}
+
+	return vttPath, nil
+}
+
 func readSubtitleList(infoPath string) SubtitleList {
 	data, err := os.ReadFile(infoPath)
 	if err != nil {
@@ -215,70 +270,6 @@ func readSubtitleList(infoPath string) SubtitleList {
 	return list
 }
 
-func ensureSubtitleFile(infoPath, lang string) (string, error) {
-	base := strings.TrimSuffix(infoPath, ".info.json")
-	vttPath := base + "." + lang + ".vtt"
-
-	if _, err := os.Stat(vttPath); err == nil {
-		return vttPath, nil
-	}
-
-	data, err := os.ReadFile(infoPath)
-	if err != nil {
-		return "", fmt.Errorf("read info.json: %w", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return "", fmt.Errorf("parse info.json: %w", err)
-	}
-
-	subURL := findSubtitleURL(raw, lang)
-	if subURL == "" {
-		return "", fmt.Errorf("no subtitle URL for %q", lang)
-	}
-
-	resp, err := downloadWithTimeout(subURL, 30*time.Second)
-	if err != nil {
-		return "", fmt.Errorf("download subtitle: %w", err)
-	}
-	defer resp.Body.Close()
-
-	f, err := os.Create(vttPath)
-	if err != nil {
-		return "", fmt.Errorf("create subtitle file: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(vttPath)
-		return "", fmt.Errorf("write subtitle file: %w", err)
-	}
-
-	return vttPath, nil
-}
-
-func findSubtitleVTTs(infoPath, lang string) ([]string, error) {
-	if lang != "" {
-		p, err := ensureSubtitleFile(infoPath, lang)
-		if err != nil {
-			return nil, err
-		}
-		return []string{p}, nil
-	}
-
-	base := strings.TrimSuffix(infoPath, ".info.json")
-	pattern := base + ".*.vtt"
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
-	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no subtitle files found")
-	}
-	return matches, nil
-}
-
 func findSubtitleURL(raw map[string]any, lang string) string {
 	for _, key := range []string{"subtitles", "automatic_captions"} {
 		if subs, ok := raw[key].(map[string]any); ok {
@@ -320,7 +311,7 @@ func downloadWithTimeout(rawURL string, timeout time.Duration) (*http.Response, 
 	return resp, nil
 }
 
-var vttTimeRe = regexp.MustCompile(`^(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})`)
+var vttTimeRe = regexp.MustCompile(`(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})`)
 
 func parseVTT(path string) ([]SubtitleCue, error) {
 	data, err := os.ReadFile(path)
@@ -328,21 +319,21 @@ func parseVTT(path string) ([]SubtitleCue, error) {
 		return nil, err
 	}
 
-	// Try YouTube JSON format first (yt-dlp's srv3/srv2 formats)
+	// Try YouTube JSON format first (yt-dlp's json3 output)
 	if cues, ok := tryParseYouTubeSubs(data); ok {
 		return cues, nil
 	}
 
-	// Fall back to standard WebVTT parsing
+	// Standard WebVTT
 	return parseWebVTT(data)
 }
 
 func tryParseYouTubeSubs(data []byte) ([]SubtitleCue, bool) {
 	var raw struct {
 		Events []struct {
-			TStartMs float64 `json:"tStartMs"`
+			TStartMs  float64 `json:"tStartMs"`
 			DDuration float64 `json:"dDurationMs"`
-			Segs     []struct {
+			Segs      []struct {
 				UTF8 string `json:"utf8"`
 			} `json:"segs"`
 		} `json:"events"`
@@ -385,14 +376,10 @@ func parseWebVTT(data []byte) ([]SubtitleCue, error) {
 		}
 
 		matches := vttTimeRe.FindAllStringSubmatch(line, -1)
-		if len(matches) == 1 && len(matches[0]) == 4 {
+		if len(matches) >= 2 && strings.Contains(line, "-->") &&
+			len(matches[0]) == 5 && len(matches[1]) == 5 {
 			start := parseTimestamp(matches[0])
-			var end float64
-			remaining := line[len(matches[0][0]):]
-			endMatches := vttTimeRe.FindAllStringSubmatch(remaining, -1)
-			if len(endMatches) == 1 && len(endMatches[0]) == 4 {
-				end = parseTimestamp(endMatches[0])
-			}
+			end := parseTimestamp(matches[1])
 			duration := end - start
 			if duration < 0 {
 				duration = 0

@@ -120,6 +120,9 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		// Format 18 = YouTube's 360p H.264+AAC mp4 (always available).
 		"--format", "18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
 		"--write-info-json",
+		"--write-subs",
+		"--write-auto-subs",
+		"--sub-langs", "en.*,zh.*",
 		"--no-playlist",
 		"--output", outputTemplate,
 		"--print", "before_dl:filename", // emitted once before download starts (filename = pre-move path)
