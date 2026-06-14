@@ -802,7 +802,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/80" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex flex-col bg-black sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(90vw,56rem)] sm:rounded-lg sm:overflow-hidden">
+      <div className="fixed inset-0 z-50 flex flex-col bg-black pb-[env(safe-area-inset-bottom,12px)] sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(90vw,56rem)] sm:rounded-lg sm:overflow-hidden sm:pb-0">
         <div className="flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
           <span className="text-white text-sm font-medium truncate flex-1">{job.title || 'Video'}</span>
           <button
@@ -827,7 +827,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
           <button
             onClick={handlePictureInPicture}
             disabled={!pipAvailable}
-            className="absolute top-3 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="absolute top-3 left-3 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             aria-label={pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}
             title={pipAvailable ? (pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture') : 'Picture-in-Picture is not available in this browser'}
           >
