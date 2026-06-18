@@ -358,17 +358,11 @@ function JobRow({
               </p>
             )}
 
-            {/* uploader + duration at bottom */}
-            {job.status !== 'downloading' && job.status !== 'failed' && (
-              <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3">
-                {(job.uploader || videoDuration) && (
-                  <p className="text-[11px] text-white/60">
-                    {job.uploader}
-                    {job.uploader && videoDuration ? ' · ' : ''}
-                    {videoDuration || ''}
-                  </p>
-                )}
-              </div>
+            {/* duration badge */}
+            {videoDuration && job.status !== 'downloading' && job.status !== 'failed' && (
+              <span className="absolute bottom-2 left-2 z-10 text-[11px] font-mono text-white/80 bg-black/50 px-1.5 py-0.5 rounded">
+                {videoDuration}
+              </span>
             )}
 
             {/* action buttons - visible on mobile, hover on desktop */}
@@ -386,7 +380,10 @@ function JobRow({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-3" align="end">
-                    <p className="text-sm font-medium">{job.title || job.url}</p>
+                    <p className="text-sm font-medium mb-1">{job.title || job.url}</p>
+                    {job.uploader && <p className="text-xs text-muted-foreground mb-1">{job.uploader}</p>}
+                    {videoDuration && <p className="text-xs text-muted-foreground mb-1">Duration: {videoDuration}</p>}
+                    <p className="text-xs text-muted-foreground break-all">{job.url}</p>
                   </PopoverContent>
                 </Popover>
                 {job.output_path && (
