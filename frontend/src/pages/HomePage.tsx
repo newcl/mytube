@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -229,6 +229,7 @@ function JobRow({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
 
@@ -273,6 +274,17 @@ function JobRow({
 
   function handleCopyUrl() {
     navigator.clipboard.writeText(job.url);
+  }
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await createJob(job.url);
+    } catch {
+      // silently fail
+    } finally {
+      setRetrying(false);
+    }
   }
 
   return (
@@ -415,6 +427,17 @@ function JobRow({
                     {isInPlaylist ? 'Added' : playlistFeedback === 'added' ? 'Added' : playlistFeedback === 'already' ? 'In list' : 'Add'}
                   </Button>
                 )}
+                {job.status === 'failed' && (
+                  <Button
+                    size="sm"
+                    className="h-7 w-7 p-0 bg-emerald-500/30 text-emerald-300 hover:bg-emerald-500/60 hover:text-white backdrop-blur"
+                    disabled={retrying}
+                    onClick={(e) => { e.stopPropagation(); handleRetry(); }}
+                    title="Retry download"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-red-500/80 hover:text-white backdrop-blur"
@@ -538,6 +561,18 @@ function JobRow({
                     >
                       <ListPlus className="w-3.5 h-3.5 mr-1" />
                       {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
+                    </Button>
+                  )}
+                  {job.status === 'failed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-emerald-600 hover:bg-emerald-500 hover:text-white"
+                      disabled={retrying}
+                      onClick={handleRetry}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 mr-1 ${retrying ? 'animate-spin' : ''}`} />
+                      {retrying ? '…' : 'Retry'}
                     </Button>
                   )}
                   <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
@@ -1529,11 +1564,10 @@ export default function HomePage() {
       <Button
         onClick={handlePasteIntoInput}
         disabled={submitting}
-        className="fixed left-4 bottom-4 z-40 gap-2 shadow-lg"
+        className="fixed left-4 bottom-4 z-40 w-14 h-14 rounded-full shadow-lg p-0"
         title="Paste YouTube URL from clipboard and queue"
       >
-        <ClipboardPaste className="w-4 h-4" />
-        Paste + Queue
+        <ClipboardPaste className="w-6 h-6" />
       </Button>
     </div>
   );

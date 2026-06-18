@@ -128,9 +128,6 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		// Format 18 = YouTube's 360p H.264+AAC mp4 (always available).
 		"--format", "18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
 		"--write-info-json",
-		"--write-subs",
-		"--write-auto-subs",
-		"--sub-langs", "en.*,zh.*",
 		"--no-playlist",
 		"--output", outputTemplate,
 		"--print", "before_dl:filename", // emitted once before download starts (filename = pre-move path)
@@ -389,13 +386,17 @@ func (w *Worker) backfillSubtitles(ctx context.Context) {
 	}
 
 	log.Printf("worker: subtitle backfill checking %d jobs", len(jobs))
-	for _, job := range jobs {
+ 	for _, job := range jobs {
 		if err := ctx.Err(); err != nil {
 			return
 		}
 
-		downloaded := w.tryDownloadSubsForJob(ctx, job)
-		_ = dbpkg.MarkJobSubtitlesChecked(w.db, job.ID)
+		downloaded, rateLimited := w.tryDownloadSubsForJob(ctx, job)
+		if !rateLimited {
+			_ = dbpkg.MarkJobSubtitlesChecked(w.db, job.ID)
+		} else {
+			log.Printf("worker: subtitle backfill job %d: rate-limited, will retry later", job.ID)
+		}
 
 		if downloaded > 0 {
 			log.Printf("worker: subtitle backfill job %d: downloaded %d files", job.ID, downloaded)
@@ -403,7 +404,7 @@ func (w *Worker) backfillSubtitles(ctx context.Context) {
 	}
 }
 
-func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBackfillJob) int {
+func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBackfillJob) (count int, rateLimited bool) {
 	outputDir := filepath.Dir(job.OutputPath)
 	base := job.OutputPath
 	for _, ext := range []string{".mp4", ".mkv", ".webm", ".m4a", ".opus"} {
@@ -423,7 +424,7 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 		}
 	}
 	if len(missing) == 0 {
-		return 0
+		return 0, false
 	}
 
 	joinedLangs := strings.Join(missing, ",")
@@ -446,17 +447,25 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 
 	cmd := exec.CommandContext(dlCtx, "yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
+	outStr := strings.TrimSpace(string(output))
 	if err != nil {
-		log.Printf("worker: subtitle backfill job %d: yt-dlp: %v (output: %s)", job.ID, err, strings.TrimSpace(string(output)))
+		// HTTP 429 means rate-limited — don't mark as checked so we retry later.
+		// yt-dlp prints "HTTP Error 429" when the server returns 429.
+		if strings.Contains(outStr, "HTTP Error 429") {
+			log.Printf("worker: subtitle backfill job %d: rate-limited: %v", job.ID, err)
+			return 0, true
+		}
+		// Genuine errors (video removed, network failure, etc.) — mark done.
+		log.Printf("worker: subtitle backfill job %d: yt-dlp: %v (output: %s)", job.ID, err, outStr)
 	}
 
 	// Count how many actually got downloaded
-	count := 0
+	count = 0
 	for _, lang := range langs {
 		p := base + "." + lang + ".vtt"
 		if _, err := os.Stat(p); err == nil {
 			count++
 		}
 	}
-	return count
+	return count, false
 }
