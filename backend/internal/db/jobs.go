@@ -40,7 +40,7 @@ type Job struct {
 	DurationSecs float64   `json:"duration_seconds"`
 	Extractor    string    `json:"extractor"`
 	WebpageURL   string    `json:"webpage_url"`
-	SubtitlesChecked bool     `json:"subtitles_checked"`
+	SubtitlesChecked int64      `json:"subtitles_checked"`
 	OutputPath       string    `json:"output_path"`
 	Error            string    `json:"error"`
 	Progress         *Progress `json:"progress,omitempty"`

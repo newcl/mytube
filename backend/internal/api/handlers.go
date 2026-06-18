@@ -15,34 +15,36 @@ import (
 
 // jobResponse is the public JSON shape for a job.
 type jobResponse struct {
-	ID           int64           `json:"id"`
-	URL          string          `json:"url"`
-	Status       dbpkg.JobStatus `json:"status"`
-	CreatedAt    string          `json:"created_at"`
-	UpdatedAt    string          `json:"updated_at"`
-	Title        string          `json:"title"`
-	Uploader     string          `json:"uploader"`
-	ThumbnailURL string          `json:"thumbnail_url"`
-	DurationSecs float64         `json:"duration_seconds"`
-	OutputPath   string          `json:"output_path"`
-	Error        string          `json:"error"`
-	Progress     *dbpkg.Progress `json:"progress"`
+	ID               int64           `json:"id"`
+	URL              string          `json:"url"`
+	Status           dbpkg.JobStatus `json:"status"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
+	Title            string          `json:"title"`
+	Uploader         string          `json:"uploader"`
+	ThumbnailURL     string          `json:"thumbnail_url"`
+	DurationSecs     float64         `json:"duration_seconds"`
+	SubtitlesChecked bool            `json:"subtitles_checked"`
+	OutputPath       string          `json:"output_path"`
+	Error            string          `json:"error"`
+	Progress         *dbpkg.Progress `json:"progress"`
 }
 
 func toJobResponse(j *dbpkg.Job) jobResponse {
 	return jobResponse{
-		ID:           j.ID,
-		URL:          j.URL,
-		Status:       j.Status,
-		CreatedAt:    j.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:    j.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		Title:        j.Title,
-		Uploader:     j.Uploader,
-		ThumbnailURL: j.ThumbnailURL,
-		DurationSecs: j.DurationSecs,
-		OutputPath:   j.OutputPath,
-		Error:        j.Error,
-		Progress:     j.Progress,
+		ID:               j.ID,
+		URL:              j.URL,
+		Status:           j.Status,
+		CreatedAt:        j.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:        j.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		Title:            j.Title,
+		Uploader:         j.Uploader,
+		ThumbnailURL:     j.ThumbnailURL,
+		DurationSecs:     j.DurationSecs,
+		SubtitlesChecked: j.SubtitlesChecked != 0,
+		OutputPath:       j.OutputPath,
+		Error:            j.Error,
+		Progress:         j.Progress,
 	}
 }
 
