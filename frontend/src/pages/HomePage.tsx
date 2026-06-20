@@ -138,8 +138,9 @@ function loadPlaylistItems(): PlaylistItem[] {
 function savePlaylistItems(items: PlaylistItem[]) {
   try {
     localStorage.setItem(PLAYLIST_STORAGE_KEY, JSON.stringify(items));
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 
@@ -232,6 +233,15 @@ function JobRow({
   const [retrying, setRetrying] = useState(false);
   const [videoDuration, setVideoDuration] = useState('');
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
+  const playlistFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (playlistFeedbackTimerRef.current) {
+        clearTimeout(playlistFeedbackTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -412,10 +422,12 @@ function JobRow({
                       const added = onAddToPlaylist(job);
                       if (added) {
                         setPlaylistFeedback('added');
-                        setTimeout(() => setPlaylistFeedback(null), 1500);
+                        if (playlistFeedbackTimerRef.current) clearTimeout(playlistFeedbackTimerRef.current);
+                        playlistFeedbackTimerRef.current = setTimeout(() => setPlaylistFeedback(null), 1500);
                       } else {
                         setPlaylistFeedback('already');
-                        setTimeout(() => setPlaylistFeedback(null), 1200);
+                        if (playlistFeedbackTimerRef.current) clearTimeout(playlistFeedbackTimerRef.current);
+                        playlistFeedbackTimerRef.current = setTimeout(() => setPlaylistFeedback(null), 1200);
                       }
                     }}
                     title="Add to playlist"
@@ -549,10 +561,12 @@ function JobRow({
                         const added = onAddToPlaylist(job);
                         if (added) {
                           setPlaylistFeedback('added');
-                          setTimeout(() => setPlaylistFeedback(null), 1500);
+                          if (playlistFeedbackTimerRef.current) clearTimeout(playlistFeedbackTimerRef.current);
+                          playlistFeedbackTimerRef.current = setTimeout(() => setPlaylistFeedback(null), 1500);
                         } else {
                           setPlaylistFeedback('already');
-                          setTimeout(() => setPlaylistFeedback(null), 1200);
+                          if (playlistFeedbackTimerRef.current) clearTimeout(playlistFeedbackTimerRef.current);
+                          playlistFeedbackTimerRef.current = setTimeout(() => setPlaylistFeedback(null), 1200);
                         }
                       }}
                     >
@@ -955,6 +969,8 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [playingJob, setPlayingJob] = useState<Job | null>(null);
   const playlistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playlistStartTimeRef = useRef<number>(0);
+  const playlistInitializedRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Bulk select
@@ -1014,10 +1030,15 @@ export default function HomePage() {
 
   useEffect(() => {
     setPlaylist(loadPlaylistItems());
+    playlistInitializedRef.current = true;
   }, []);
 
   useEffect(() => {
-    savePlaylistItems(playlist);
+    if (playlistInitializedRef.current) {
+      if (!savePlaylistItems(playlist)) {
+        alert('Warning: Could not save playlist. Local storage may be full. Try clearing some data.');
+      }
+    }
   }, [playlist]);
 
   useEffect(() => {
@@ -1095,6 +1116,7 @@ export default function HomePage() {
     clearPlaylistTimer();
     setPlaylistIndex(null);
     setPlayingJob(null);
+    playlistStartTimeRef.current = 0;
   }
 
   async function startPlaylistPlayback(startIndex = 0) {
@@ -1116,6 +1138,7 @@ export default function HomePage() {
     setPlaylistIndex(itemIndex);
     setPlayingJob(job);
 
+    playlistStartTimeRef.current = Date.now();
     playlistTimerRef.current = setTimeout(() => {
       stopPlaylistPlayback();
     }, playlistTimer * 60 * 1000);
@@ -1123,6 +1146,16 @@ export default function HomePage() {
 
   function advancePlaylist() {
     if (playlistIndex === null) return;
+
+    if (playlistStartTimeRef.current > 0) {
+      const elapsed = Date.now() - playlistStartTimeRef.current;
+      const limit = playlistTimer * 60 * 1000;
+      if (elapsed >= limit) {
+        stopPlaylistPlayback();
+        return;
+      }
+    }
+
     const nextIndex = playlist.slice(playlistIndex + 1).findIndex((item) => {
       const job = findPlaylistJob(item);
       return job?.status === 'completed' && !!job.output_path;
@@ -1140,6 +1173,20 @@ export default function HomePage() {
     }
     setPlaylistIndex(itemIndex);
     setPlayingJob(job);
+
+    if (playlistStartTimeRef.current > 0) {
+      const elapsed = Date.now() - playlistStartTimeRef.current;
+      const limit = playlistTimer * 60 * 1000;
+      const remaining = limit - elapsed;
+      if (remaining <= 0) {
+        stopPlaylistPlayback();
+        return;
+      }
+      clearPlaylistTimer();
+      playlistTimerRef.current = setTimeout(() => {
+        stopPlaylistPlayback();
+      }, remaining);
+    }
   }
 
   function addPlaylistItem(urlToAdd: string, title?: string, jobId?: number) {
@@ -1159,6 +1206,11 @@ export default function HomePage() {
     if (updatedUrl === null) return;
     const trimmedUrl = updatedUrl.trim();
     if (!trimmedUrl || !looksLikeYouTubeUrl(trimmedUrl)) return;
+    const duplicate = playlist.some((current, i) => i !== index && current.url === trimmedUrl);
+    if (duplicate) {
+      alert('Another playlist item already has this URL.');
+      return;
+    }
     setPlaylist((prev) => prev.map((current, i) => i === index ? {
       ...current,
       url: trimmedUrl,
