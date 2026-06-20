@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -1554,8 +1554,8 @@ export default function HomePage() {
                 </Button>
               </div>
 
-              <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground mb-4">
-                <span>Stop after</span>
+              <div className="flex gap-2 items-center text-xs text-muted-foreground mb-4">
+                <Clock className="w-3.5 h-3.5 flex-shrink-0" />
                 {PLAYLIST_TIMER_OPTIONS.map((minutes) => (
                   <Button
                     key={minutes}
