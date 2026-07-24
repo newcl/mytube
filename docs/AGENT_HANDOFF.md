@@ -15,6 +15,9 @@ Implemented and verified:
 - `serve`, `doctor`, and `version` commands;
 - lightweight `yt-dlp status`, `update`, and `rollback` commands with managed
   current/previous slots and the embedded copy as fallback;
+- a built-in macOS yt-dlp checker that runs five minutes after startup and
+  weekly thereafter, activating updates for new jobs without another
+  LaunchAgent or service restart;
 - startup recovery for interrupted downloads;
 - native build and user LaunchAgent management scripts;
 - passing backend tests and Linux ARM64 compatibility build;

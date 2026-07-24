@@ -117,3 +117,8 @@ The yt-dlp updater maintains `current` and `previous` executable slots under
 the Application Support tool directory. It uses yt-dlp's own release updater,
 validates the updated executable, restores automatically on failure, and keeps
 the embedded version unchanged as a final fallback.
+
+On macOS, `serve` runs this updater internally five minutes after startup and
+then every `MYTUBE_YTDLP_UPDATE_INTERVAL` (default `168h`). Atomic replacement
+leaves active downloads untouched; new jobs use the updated executable. Set
+the interval to `0` to disable automatic checks.
