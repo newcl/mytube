@@ -6,7 +6,7 @@ Personal YouTube downloader + library UI + Chrome extension.
 
 | Component | Tech | Where |
 |-----------|------|-------|
-| Backend API + worker | Go + SQLite | Oracle Cloud VPS |
+| Backend API + worker | Native Go + SQLite + packaged yt-dlp | Mac Mini |
 | Frontend | React + Vite | Cloudflare Pages |
 | Chrome extension | MV3 | Local install |
 
@@ -28,12 +28,18 @@ scripts/        systemd unit, helper scripts
 
 ### Backend
 
-Requires Go 1.22+ and `yt-dlp` installed on the host.
+Source development requires Go and a `yt-dlp` executable on `PATH`.
 
 ```bash
 cd backend
 cp .env.example .env   # set MYTUBE_TOKEN at minimum
 go run ./cmd/server
+```
+
+Build the self-contained Apple Silicon package:
+
+```bash
+bash scripts/build-native-macos.sh
 ```
 
 ### Frontend
@@ -60,6 +66,7 @@ Load `extension/` as an unpacked extension in Chrome (see [docs/extension-dev.md
 
 ## Deployment
 
-- VPS backend: [docs/deploy-vps.md](docs/deploy-vps.md)
-- Homelab k3s backend: [docs/deploy-k3s.md](docs/deploy-k3s.md)
+- Native Mac backend: [docs/deploy-mac.md](docs/deploy-mac.md)
+- Native migration tracker: [docs/native-macos-implementation-plan.md](docs/native-macos-implementation-plan.md)
+- Homelab k3s rollback deployment: [docs/deploy-k3s.md](docs/deploy-k3s.md)
 - Cloudflare Pages: [docs/deploy-cloudflare-pages.md](docs/deploy-cloudflare-pages.md)

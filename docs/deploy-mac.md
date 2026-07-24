@@ -1,121 +1,171 @@
-# Deploy — Backend on Mac Mini (current setup)
+# Deploy the native backend on the Mac Mini
 
-The backend runs on an Apple Silicon Mac Mini at home, exposed via a Cloudflare
-Tunnel. This replaces the original Oracle VPS design.
+The native package runs the API, worker, SQLite, and media storage in one
+Apple Silicon process. It uses the Mac user's live browser session and is
+published through the existing Mac Cloudflare Tunnel.
 
+```text
+Client
+  -> Cloudflare
+  -> cloudflared on the Mac
+  -> http://127.0.0.1:8081
+  -> native MyTube service
 ```
-Client → Cloudflare edge → cloudflared tunnel → Mac Mini localhost:8081 → mytube-server
-```
 
----
+The implementation and cutover checklist is tracked in
+[`native-macos-implementation-plan.md`](native-macos-implementation-plan.md).
 
-## Services managed by launchd
+## Build
 
-All four agents live in `~/Library/LaunchAgents/` and are managed by
-`scripts/setup-mac.sh`.
-
-| Label | Plist | Purpose |
-|---|---|---|
-| `com.mytube.server` | `LaunchAgents/com.mytube.server.plist` | Go HTTP API + worker |
-| `com.mytube.cloudflared` | `LaunchAgents/com.mytube.cloudflared.plist` | Cloudflare Tunnel |
-| `com.mytube.cookie-refresh` | `LaunchAgents/com.mytube.cookie-refresh.plist` | Pushes fresh YT cookies to the k3s VM every 6 h |
-
-Useful commands:
+The package builder downloads a pinned official `yt-dlp_macos`, verifies its
+SHA-256 checksum, and embeds it in the Go executable:
 
 ```bash
-# Status
-launchctl list | grep com.mytube
-
-# Logs
-tail -f ~/Library/Logs/mytube/server.log
-tail -f ~/Library/Logs/mytube/cloudflared.log
-tail -f ~/Library/Logs/mytube/cookie-refresh.log
-
-# Restart a service
-launchctl unload ~/Library/LaunchAgents/com.mytube.server.plist
-launchctl load   ~/Library/LaunchAgents/com.mytube.server.plist
+bash scripts/build-native-macos.sh
 ```
 
----
+Output:
 
-## Cloudflare Tunnel config
-
-`~/.cloudflared/config.yml` — ingress rules:
-
-| Hostname | Local target |
-|---|---|
-| `mytubeapi.elladali.com` | `http://localhost:8081` |
-| `cal.elladali.com` | `http://localhost:3000` |
-
----
-
-## Known issues & fixes
-
-### 1. QUIC idle-timeout causes periodic 530 errors (fixed 2026-05-18)
-
-**Symptom:** When accessing the API remotely (e.g. on a phone with a different
-network), requests occasionally return HTTP 530 for a second or two.
-
-**Root cause:** By default cloudflared uses QUIC (UDP). Home routers flush idle
-UDP NAT table entries after ~60 seconds. cloudflared's four tunnel connections
-all drop simultaneously when no traffic has passed recently. The connections
-reconnect within ~1 s, but any request landing during that window gets a 530
-from Cloudflare.
-
-**Fix applied:** Added `protocol: http2` to `~/.cloudflared/config.yml`.
-HTTP/2 uses persistent TCP connections which the router NAT keeps alive
-indefinitely. `setup-mac.sh` now writes this setting when creating the config.
-
-Verify it's active:
-```bash
-grep protocol ~/.cloudflared/config.yml
-# → protocol: http2
-
-tail -5 ~/Library/Logs/mytube/cloudflared.log | grep protocol
-# → protocol=http2
+```text
+backend/bin/mytube-darwin-arm64
 ```
 
----
-
-### 2. Services don't start after a Mac restart (unattended reboot)
-
-**Symptom:** After a power cut or macOS update reboot, the API is unreachable
-until someone physically logs in to the Mac Mini.
-
-**Root cause:** The agents use `~/Library/LaunchAgents/` which is a
-*per-user* location. macOS only loads these after a GUI login session begins.
-They cannot be moved to `/Library/LaunchDaemons/` (system level) because
-`mytube-server` and `cookie-refresh` both need Keychain access to read Chrome
-cookies via yt-dlp.
-
-**Fix:** Enable automatic login so the user session starts at boot without
-requiring someone to be present.
-
-System Settings → Users & Groups → Login Options → Automatic login → select your
-user account.
-
-> This is appropriate for a single-user home server. Do not enable on a
-> shared or publicly accessible machine.
-
----
-
-### 3. Homebrew cloudflared agent conflict (fixed 2026-05-18)
-
-**Symptom:** `launchctl list | grep cloudflare` showed two entries:
-`com.mytube.cloudflared` (running) and `homebrew.mxcl.cloudflared` (exit 256,
-not running). The Homebrew-managed plist has no tunnel config and fails
-immediately on load.
-
-**Fix applied:** Removed `~/Library/LaunchAgents/homebrew.mxcl.cloudflared.plist`.
-`setup-mac.sh` now deletes this file automatically if it exists.
-
----
-
-## Initial setup / re-setup
+For an offline build, supply an already-downloaded payload. It is still checked
+against the repository's pinned checksum:
 
 ```bash
-# From repo root
-bash scripts/setup-mac.sh
+MYTUBE_YTDLP_SOURCE=/path/to/yt-dlp_macos \
+  bash scripts/build-native-macos.sh
 ```
 
-Then follow the auto-login note printed at the end.
+The official standalone macOS yt-dlp payload includes third-party components
+whose combined distribution is GPLv3+. Review the upstream release-file
+licensing before distributing MyTube outside personal use.
+
+## Install without changing traffic
+
+Install and start the user LaunchAgent:
+
+```bash
+bash scripts/install-native-macos.sh install
+```
+
+This step:
+
+- installs the binary under `~/Library/Application Support/MyTube/`;
+- creates a mode-`0600` configuration file when one does not exist;
+- runs `mytube doctor`;
+- installs `com.mytube.server` as a user LaunchAgent;
+- starts the service on `127.0.0.1:8081`.
+
+It deliberately does not modify Cloudflare Tunnel configuration or DNS.
+
+Mutable state:
+
+```text
+~/Library/Application Support/MyTube/
+  mytube
+  mytube.env
+  mytube.db
+  downloads/
+  tools/
+```
+
+Logs:
+
+```text
+~/Library/Logs/MyTube/server.log
+```
+
+## Service operations
+
+```bash
+bash scripts/install-native-macos.sh status
+bash scripts/install-native-macos.sh start
+bash scripts/install-native-macos.sh stop
+bash scripts/install-native-macos.sh restart
+bash scripts/install-native-macos.sh uninstall
+```
+
+Uninstalling the LaunchAgent preserves the configuration, database, downloads,
+and installed binary.
+
+Run diagnostics manually:
+
+```bash
+"$HOME/Library/Application Support/MyTube/mytube" doctor \
+  --config "$HOME/Library/Application Support/MyTube/mytube.env"
+```
+
+## Browser authentication
+
+The default native configuration uses:
+
+```text
+MYTUBE_COOKIE_BROWSER=chrome
+MYTUBE_JS_RUNTIME=deno
+```
+
+The service must run as the logged-in macOS user so yt-dlp can access the
+Chrome profile and macOS Keychain. On the first access, macOS may request
+Keychain permission. Use a dedicated YouTube profile/account.
+
+The package contains yt-dlp but discovers `ffmpeg`, `ffprobe`, and Deno through
+`PATH`. Install them with Homebrew if `mytube doctor` reports warnings:
+
+```bash
+brew install ffmpeg deno
+```
+
+## Local verification
+
+Before changing public traffic:
+
+```bash
+curl http://127.0.0.1:8081/health
+```
+
+Then enter the API token from the protected configuration into the frontend,
+submit one short video, and verify:
+
+- the job reaches `completed`;
+- progress updates while downloading;
+- playback succeeds;
+- seeking returns `206 Partial Content`;
+- restarting the LaunchAgent does not strand an active job.
+
+## Cloudflare cutover
+
+The Mac already runs cloudflared for `cal.elladali.com`. Add a MyTube ingress
+rule to that existing tunnel:
+
+```yaml
+- hostname: mytubeapi.elladali.com
+  service: http://127.0.0.1:8081
+```
+
+Keep the final catch-all rule:
+
+```yaml
+- service: http_status:404
+```
+
+Create an explicit `mytubeapi.elladali.com` DNS route to the Mac tunnel. The
+explicit record overrides the wildcard that otherwise sends the hostname to
+the VM tunnel.
+
+After public health, authentication, a real download, and HTTP Range serving
+are verified, scale the VM Deployment to zero. Do not delete its namespace,
+PVC, PV, database, downloads, or wildcard DNS route.
+
+Only then disable `com.mytube.cookie-refresh`, which is used solely to push
+cookies to the VM deployment.
+
+## Rollback
+
+1. Restore `mytubeapi.elladali.com` to the VM tunnel.
+2. Scale the retained k3s MyTube Deployment back to one replica.
+3. Verify the Deployment, Service, Ingress, public endpoint, HTTP Range
+   serving, and Prometheus metrics.
+
+Stopping the Mac LaunchAgent does not remove its local data.

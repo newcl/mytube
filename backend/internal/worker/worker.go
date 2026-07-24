@@ -32,6 +32,7 @@ const (
 type Worker struct {
 	db            *sql.DB
 	downloadDir   string
+	ytdlpPath     string
 	concurrency   int
 	cookieBrowser string // if set, use --cookies-from-browser <browser> instead of a cookie file
 	cookieFile    string // if set, use --cookies <path>
@@ -41,7 +42,7 @@ type Worker struct {
 }
 
 // New creates a new Worker.
-func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser, cookieFile, jsRuntime string) *Worker {
+func New(db *sql.DB, downloadDir, ytdlpPath string, concurrency int, cookieBrowser, cookieFile, jsRuntime string) *Worker {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -52,6 +53,7 @@ func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser, cookieF
 	return &Worker{
 		db:            db,
 		downloadDir:   downloadDir,
+		ytdlpPath:     ytdlpPath,
 		concurrency:   concurrency,
 		cookieBrowser: cookieBrowser,
 		cookieFile:    cookieFile,
@@ -151,7 +153,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 	args = append(args, job.URL)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, w.ytdlpPath, args...)
 
 	var logBuf bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -461,7 +463,7 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 	dlCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(dlCtx, "yt-dlp", args...)
+	cmd := exec.CommandContext(dlCtx, w.ytdlpPath, args...)
 	output, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(output))
 	if err != nil {

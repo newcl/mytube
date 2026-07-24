@@ -29,18 +29,18 @@ type Progress struct {
 
 // Job is a download job record.
 type Job struct {
-	ID           int64     `json:"id"`
-	URL          string    `json:"url"`
-	Status       JobStatus `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Title        string    `json:"title"`
-	Uploader     string    `json:"uploader"`
-	ThumbnailURL string    `json:"thumbnail_url"`
-	DurationSecs float64   `json:"duration_seconds"`
-	Extractor    string    `json:"extractor"`
-	WebpageURL   string    `json:"webpage_url"`
-	SubtitlesChecked int64      `json:"subtitles_checked"`
+	ID               int64     `json:"id"`
+	URL              string    `json:"url"`
+	Status           JobStatus `json:"status"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	Title            string    `json:"title"`
+	Uploader         string    `json:"uploader"`
+	ThumbnailURL     string    `json:"thumbnail_url"`
+	DurationSecs     float64   `json:"duration_seconds"`
+	Extractor        string    `json:"extractor"`
+	WebpageURL       string    `json:"webpage_url"`
+	SubtitlesChecked int64     `json:"subtitles_checked"`
 	OutputPath       string    `json:"output_path"`
 	Error            string    `json:"error"`
 	Progress         *Progress `json:"progress,omitempty"`
@@ -107,7 +107,7 @@ func ListJobs(db *sql.DB, limit int) ([]*Job, error) {
 // ListCompletedJobs returns all completed jobs (no limit).
 func ListCompletedJobs(db *sql.DB) ([]*Job, error) {
 	rows, err := db.Query(
-		`SELECT `+jobColumns+` FROM jobs WHERE status = 'completed' AND output_path <> '' ORDER BY created_at DESC`,
+		`SELECT ` + jobColumns + ` FROM jobs WHERE status = 'completed' AND output_path <> '' ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list completed jobs: %w", err)
@@ -219,6 +219,22 @@ func SetJobFailed(db *sql.DB, id int64, errMsg, logTail string) error {
 		errMsg, logTail, id,
 	)
 	return err
+}
+
+// RecoverInterruptedJobs returns jobs left in downloading state to the queue.
+// This runs once at service startup after the prior worker process is gone.
+func RecoverInterruptedJobs(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`UPDATE jobs SET
+		status        = 'queued',
+		updated_at    = strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+		output_path   = NULL,
+		progress_json = NULL,
+		error_msg     = 'service restarted; job requeued'
+	WHERE status = 'downloading'`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 // UpdateJobProgress writes progress JSON (throttled by caller).

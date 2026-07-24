@@ -1,7 +1,10 @@
-.PHONY: build test run lint clean
+.PHONY: build build-macos-native test run lint clean
 
 build:
 	go build -o bin/mytube-server ./cmd/server
+
+build-macos-native:
+	bash ../scripts/build-native-macos.sh
 
 test:
 	go test ./...

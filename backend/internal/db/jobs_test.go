@@ -113,6 +113,41 @@ func TestUpdateJobProgress(t *testing.T) {
 	}
 }
 
+func TestRecoverInterruptedJobs(t *testing.T) {
+	db := openTestDB(t)
+	id, err := dbPkg.CreateJob(db, "https://example.com/interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobDownloading(db, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobOutputPath(db, id, "/tmp/partial.mp4"); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := dbPkg.RecoverInterruptedJobs(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("recovered %d jobs, want 1", count)
+	}
+	job, err := dbPkg.GetJob(db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != dbPkg.StatusQueued {
+		t.Fatalf("status = %q", job.Status)
+	}
+	if job.OutputPath != "" {
+		t.Fatalf("output path was not cleared: %q", job.OutputPath)
+	}
+	if job.Progress != nil {
+		t.Fatalf("progress was not cleared: %#v", job.Progress)
+	}
+}
+
 func TestDequeueJobs(t *testing.T) {
 	db := openTestDB(t)
 

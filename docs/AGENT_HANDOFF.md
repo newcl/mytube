@@ -1,4 +1,30 @@
-# MyTube — Coding Agent Handoff (Sonnet 4.6)
+# MyTube — Coding Agent Handoff
+
+## Native macOS migration update — 2026-07-23
+
+The target backend is now one native Apple Silicon Go service on the always-on
+Mac Mini. Implementation phases 1–4 are complete and tracked in
+[`native-macos-implementation-plan.md`](native-macos-implementation-plan.md).
+
+Implemented and verified:
+
+- platform-aware macOS configuration under
+  `~/Library/Application Support/MyTube/`;
+- a pinned, checksum-verified embedded `yt-dlp_macos`;
+- explicit and managed yt-dlp override paths;
+- `serve`, `doctor`, and `version` commands;
+- startup recovery for interrupted downloads;
+- native build and user LaunchAgent management scripts;
+- passing backend tests and Linux ARM64 compatibility build;
+- a real Chrome-authenticated download and HTTP 206 media serving.
+
+The native service has not replaced the k3s deployment yet. Phase 5 remains a
+deliberate infrastructure cutover: install the LaunchAgent, verify locally,
+route the explicit MyTube hostname to the Mac tunnel, verify publicly, and
+only then scale the VM Deployment to zero. Do not delete retained VM storage.
+
+The historical requirements below describe the original implementation and
+remain useful as API/product context.
 
 Date: 2026-04-27  
 Owner: `newcl`  

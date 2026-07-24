@@ -1,99 +1,111 @@
-# MyTube — Architecture
+# MyTube architecture
 
-## Overview
+## Target deployment
 
-MyTube is a personal YouTube downloader with a web UI and Chrome extension. It is designed for single-user personal use, hosted on an Oracle Cloud VPS and Cloudflare Pages.
+MyTube is a private, single-user YouTube downloader. The frontend remains on
+Cloudflare Pages; the backend runs as one native Apple Silicon service on the
+always-on Mac Mini.
 
-## Components
-
-```
-┌──────────────────────────────────────────────────────────┐
-│ Chrome extension (MV3)                                    │
-│   • reads current tab URL                                 │
-│   • POST /api/jobs  →  mytubeapi.elladali.com             │
-└──────────────────────────────┬───────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────┐
-│ Frontend (Cloudflare Pages)                               │
-│   mytube.elladali.com                                     │
-│   React + Vite                                            │
-│   • Submit URL form                                       │
-│   • Job list with live progress (polling /api/jobs ~1s)   │
-│   • <video> playback via /files/{id}?token=...            │
-└──────────────────────────────┬───────────────────────────┘
-                               │ HTTPS
-┌──────────────────────────────▼───────────────────────────┐
-│ Backend (Oracle VPS)                                      │
-│   mytubeapi.elladali.com                                  │
-│                                                           │
-│   ┌──────────────┐   ┌─────────────────────────────────┐ │
-│   │  HTTP API    │   │  Download Worker                │ │
-│   │  (chi)       │   │  • semaphore (MYTUBE_CONCURRENCY)│ │
-│   │  /api/jobs   │   │  • exec yt-dlp                  │ │
-│   │  /files/{id} │   │  • parse progress lines         │ │
-│   └──────┬───────┘   └────────────┬────────────────────┘ │
-│          │                        │                       │
-│          └──────────┬─────────────┘                       │
-│                     │                                     │
-│              ┌──────▼──────┐                              │
-│              │   SQLite    │                              │
-│              │  (jobs,     │                              │
-│              │   progress) │                              │
-│              └─────────────┘                              │
-│                                                           │
-│   Disk: MYTUBE_DOWNLOAD_DIR (downloaded files)            │
-└──────────────────────────────────────────────────────────┘
+```text
+Chrome extension                 Cloudflare Pages frontend
+        |                                  |
+        +--------------- HTTPS ------------+
+                           |
+                 mytubeapi.elladali.com
+                           |
+                     Cloudflare Tunnel
+                     on the Mac Mini
+                           |
+                   127.0.0.1:8081
+                           |
+        +------------------+------------------+
+        | native MyTube Go service            |
+        |                                     |
+        | HTTP API       download worker      |
+        | /api/*         packaged yt-dlp      |
+        | /files/*       Chrome + Keychain    |
+        |                                     |
+        | SQLite         local media storage  |
+        +------------------+------------------+
 ```
 
-## Auth
+The k3s deployment on `miniu1` is retained as a rollback target during the
+native migration. Its storage is not shared with the Mac service.
 
-All `/api/*` and `/files/*` endpoints require `Authorization: Bearer <MYTUBE_TOKEN>`.
+## Native package
 
-For HTML5 `<video>` requests (which cannot set custom headers), `/files/{id}` additionally accepts `?token=<MYTUBE_TOKEN>` as a query parameter. This is documented as sensitive — acceptable for personal/private use only.
+The Go executable includes:
 
-The WAF (Cloudflare) provides an additional layer of protection, but the app does not rely on it for authentication.
+- the chi HTTP API;
+- the download worker and progress parser;
+- the pure-Go SQLite engine;
+- embedded SQL migrations;
+- a pinned, checksum-verified `yt-dlp_macos` payload.
+
+The package extracts yt-dlp atomically into a versioned directory under
+`~/Library/Application Support/MyTube/tools/`. An explicit
+`MYTUBE_YTDLP_PATH` or managed `tools/yt-dlp/current/yt-dlp` can override the
+packaged payload.
+
+SQLite data and downloads remain external writable files:
+
+```text
+~/Library/Application Support/MyTube/
+  mytube.db
+  downloads/
+  tools/
+```
+
+## Authentication
+
+All `/api/*` and `/files/*` endpoints require
+`Authorization: Bearer <MYTUBE_TOKEN>`.
+
+HTML5 video requests cannot attach a custom authorization header, so
+`/files/{id}` also accepts `?token=<MYTUBE_TOKEN>`. These URLs are sensitive.
+Cloudflare security controls are an additional layer and do not replace
+application authentication.
 
 See [adr/0001-auth-bearer-token.md](adr/0001-auth-bearer-token.md).
 
-## Data Flow — Download
+## Download flow
 
-1. Client POSTs `{ url }` to `/api/jobs` → job created with status `queued`.
-2. Worker picks up queued job (up to `MYTUBE_CONCURRENCY` concurrent).
-3. Worker sets status → `downloading`, invokes `yt-dlp` via `exec.CommandContext`.
-4. Worker reads yt-dlp stdout line-by-line; parses progress lines (percent/speed/ETA).
-5. Progress is written to DB at most ~2×/second (throttled).
-6. On exit code 0 → status `completed`, `output_path` set.
-7. On non-zero exit → status `failed`, last log lines stored.
+1. A client posts `{url}` to `/api/jobs`.
+2. The worker claims a queued job within the single process.
+3. yt-dlp reads cookies directly from the configured browser profile.
+4. The worker parses progress and throttles SQLite writes.
+5. yt-dlp writes media and metadata to local storage.
+6. The job becomes `completed` or `failed`.
+7. The API serves completed or in-progress media with byte-range support.
 
-## Progress (v1)
+Jobs left in `downloading` after an unclean service exit are returned to
+`queued` during the next startup.
 
-- UI polls `GET /api/jobs` every ~1 second.
-- Backend stores `progress` as JSON in SQLite (`percent`, `speed`, `eta`, `downloaded_bytes`, `total_bytes`).
-- yt-dlp is invoked with `--newline` to produce one progress line per update.
+## Runtime and security model
 
-## File Serving
+- The origin binds to `127.0.0.1:8081`.
+- cloudflared makes an outbound connection and publishes the origin.
+- MyTube runs as a user LaunchAgent, not as root.
+- The API token is stored in a mode-`0600` external configuration file.
+- Browser cookies are read from the live browser store; they are not exported
+  into the repository or application data directory.
+- SQLite uses WAL mode and a single writer connection.
+- Download concurrency defaults to two on macOS.
 
-`GET /files/{id}`:
-- Looks up job by ID in DB; verifies status = `completed` and `output_path` is set.
-- Serves file with `http.ServeContent` for Range request support (206 Partial Content).
-- Safe: no arbitrary filesystem reads — file path comes only from DB record.
+## File serving
 
-## Job Lifecycle
+`GET /files/{id}` resolves the path through the SQLite job record and delegates
+range handling to Go's HTTP file server. Arbitrary client-provided paths are
+never accepted.
 
-```
-queued → downloading → completed
-                    ↘ failed
-```
+## Operational commands
 
-## Database
+The same executable provides:
 
-SQLite via `modernc.org/sqlite` (no CGO). Single file at `MYTUBE_DB_PATH`.
+- `mytube serve --config <path>`
+- `mytube doctor --config <path>`
+- `mytube version`
 
-Schema is managed via embedded SQL migration files run on startup.
-
-## Scalability Notes (personal use)
-
-- 1 CPU / 1 GB RAM Oracle VPS — keep things light.
-- yt-dlp + ffmpeg is CPU-heavy; recommended `MYTUBE_CONCURRENCY=1` or `2`.
-- Progress DB writes are throttled to ~2×/s to reduce IO.
-- No external queues/brokers — SQLite is sufficient for personal use.
+`doctor` verifies the loopback bind, state paths, SQLite, selected yt-dlp,
+browser-cookie configuration, ffmpeg/ffprobe, and JavaScript runtime without
+printing secrets.

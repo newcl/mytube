@@ -2,3 +2,4 @@ bin/
 data/
 *.db
 .env
+internal/tooling/assets/yt-dlp_macos
