@@ -18,7 +18,7 @@ All four agents live in `~/Library/LaunchAgents/` and are managed by
 |---|---|---|
 | `com.mytube.server` | `LaunchAgents/com.mytube.server.plist` | Go HTTP API + worker |
 | `com.mytube.cloudflared` | `LaunchAgents/com.mytube.cloudflared.plist` | Cloudflare Tunnel |
-| `com.mytube.cookie-refresh` | `LaunchAgents/com.mytube.cookie-refresh.plist` | Pushes fresh YT cookies every 6 h |
+| `com.mytube.cookie-refresh` | `LaunchAgents/com.mytube.cookie-refresh.plist` | Pushes fresh YT cookies to the k3s VM every 6 h |
 
 Useful commands:
 

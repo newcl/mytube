@@ -69,7 +69,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	w := workerPkg.New(db, cfg.DownloadDir, cfg.Concurrency, cfg.CookieBrowser)
+	w := workerPkg.New(db, cfg.DownloadDir, cfg.Concurrency, cfg.CookieBrowser, cfg.CookieFile, cfg.JSRuntime)
 	go w.Run(ctx)
 
 	srv := &http.Server{
@@ -110,6 +110,8 @@ type config struct {
 	CORSOrigins   []string
 	PublicBase    string
 	CookieBrowser string // e.g. "chrome" — use --cookies-from-browser instead of a file
+	CookieFile    string // e.g. "/data/cookies/cookies.txt" — use --cookies with an exported jar
+	JSRuntime     string // e.g. "node" — explicitly enables yt-dlp's JavaScript runtime
 }
 
 func loadConfig() config {
@@ -134,6 +136,8 @@ func loadConfig() config {
 		CORSOrigins:   strings.Split(envOr("MYTUBE_CORS_ORIGIN", "https://mytube.elladali.com"), ","),
 		PublicBase:    os.Getenv("MYTUBE_PUBLIC_BASE_URL"),
 		CookieBrowser: os.Getenv("MYTUBE_COOKIE_BROWSER"),
+		CookieFile:    os.Getenv("MYTUBE_COOKIE_FILE"),
+		JSRuntime:     os.Getenv("MYTUBE_JS_RUNTIME"),
 	}
 }
 

@@ -43,8 +43,9 @@ if [[ ! -f "$YTDLP_BIN/yt-dlp" ]]; then
   echo "Install with: pip3 install -U yt-dlp" >&2
   exit 1
 fi
-if ! ssh -q -o BatchMode=yes -o ConnectTimeout=5 tiny exit 2>/dev/null; then
-  echo "WARNING: ssh tiny is not reachable right now — agent will still be installed."
+if ! ssh -q -i "$HOME/.ssh/miniu1" -o BatchMode=yes -o ConnectTimeout=5 \
+  liang@192.168.234.129 exit 2>/dev/null; then
+  echo "WARNING: homelab VM is not reachable right now — agent will still be installed."
 fi
 
 mkdir -p "$LOG_DIR"

@@ -34,12 +34,14 @@ type Worker struct {
 	downloadDir   string
 	concurrency   int
 	cookieBrowser string // if set, use --cookies-from-browser <browser> instead of a cookie file
+	cookieFile    string // if set, use --cookies <path>
+	jsRuntime     string // if set, pass --js-runtimes <runtime> to yt-dlp
 	sem           chan struct{}
 	backfillMu    sync.Mutex
 }
 
 // New creates a new Worker.
-func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser string) *Worker {
+func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser, cookieFile, jsRuntime string) *Worker {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -52,6 +54,8 @@ func New(db *sql.DB, downloadDir string, concurrency int, cookieBrowser string) 
 		downloadDir:   downloadDir,
 		concurrency:   concurrency,
 		cookieBrowser: cookieBrowser,
+		cookieFile:    cookieFile,
+		jsRuntime:     jsRuntime,
 		sem:           make(chan struct{}, concurrency),
 	}
 }
@@ -124,9 +128,10 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		"--progress",    // force progress output even when stdout is a pipe (non-TTY)
 		"--no-part",     // write directly to final filename so file is readable mid-download
 		"--no-continue", // don't try to resume partial files (avoids HTTP 416 errors)
-		// Combined single-stream: no merge step needed, file is playable immediately.
-		// Format 18 = YouTube's 360p H.264+AAC mp4 (always available).
-		"--format", "18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+		// Prefer YouTube's combined 360p HLS MP4. Progressive format URLs can
+		// require a per-video PO token even with authenticated cookies.
+		"--extractor-args", "youtube:player_client=web_safari",
+		"--format", "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
 		"--write-info-json",
 		"--no-playlist",
 		"--output", outputTemplate,
@@ -137,6 +142,11 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	// Cookie source: live browser (Mac, residential IP) or cookie file (VPS).
 	if w.cookieBrowser != "" {
 		args = append(args, "--cookies-from-browser", w.cookieBrowser)
+	} else if w.cookieFile != "" {
+		args = append(args, "--cookies", w.cookieFile)
+	}
+	if w.jsRuntime != "" {
+		args = append(args, "--js-runtimes", w.jsRuntime)
 	}
 
 	args = append(args, job.URL)
@@ -386,7 +396,7 @@ func (w *Worker) backfillSubtitles(ctx context.Context) {
 	}
 
 	log.Printf("worker: subtitle backfill checking %d jobs", len(jobs))
- 	for _, job := range jobs {
+	for _, job := range jobs {
 		if err := ctx.Err(); err != nil {
 			return
 		}
@@ -434,11 +444,17 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 		"--write-auto-subs",
 		"--sub-langs", joinedLangs,
 		"--no-playlist",
+		"--extractor-args", "youtube:player_client=web_safari",
 		"--output", outputDir + "/%(title).200B-%(id)s.%(ext)s",
 	}
 
 	if w.cookieBrowser != "" {
 		args = append(args, "--cookies-from-browser", w.cookieBrowser)
+	} else if w.cookieFile != "" {
+		args = append(args, "--cookies", w.cookieFile)
+	}
+	if w.jsRuntime != "" {
+		args = append(args, "--js-runtimes", w.jsRuntime)
 	}
 	args = append(args, job.URL)
 

@@ -16,5 +16,8 @@ lint:
 build-linux:
 	GOOS=linux GOARCH=amd64 go build -o bin/mytube-server-linux-amd64 ./cmd/server
 
+build-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/mytube-server-linux-arm64 ./cmd/server
+
 clean:
 	rm -rf bin/

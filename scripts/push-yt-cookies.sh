@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Extract YouTube-only cookies from local Chrome and push directly to the VPS.
+# Extract YouTube-only cookies from local Chrome and push them to the homelab VM.
 #
 # - Never writes cookies to a local file (piped straight to SSH)
 # - Filters to YouTube/Google domains only
-# - Places result at ~/.config/yt-dlp/cookies.txt on the remote host
+# - Replaces the remote cookie jar atomically
 #
 # Usage:
 #   bash scripts/push-yt-cookies.sh [ssh-host]
@@ -12,8 +12,11 @@
 
 set -euo pipefail
 
-SSH_HOST="${1:-tiny}"
-REMOTE_DEST="\$HOME/.config/yt-dlp/cookies.txt"
+SSH_HOST="${1:-liang@192.168.234.129}"
+SSH_KEY="${MYTUBE_SSH_KEY:-$HOME/.ssh/miniu1}"
+REMOTE_DIR="/srv/mytube/cookies"
+REMOTE_DEST="${REMOTE_DIR}/cookies.txt"
+SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes "$SSH_HOST")
 
 # YouTube + Google domains required for yt-dlp authentication.
 # Intentionally narrow — no banking, social, or other site cookies.
@@ -31,17 +34,46 @@ echo "==> Extracting YouTube-only cookies from Chrome..."
 echo "    (macOS will prompt for Keychain access — click Allow)"
 echo ""
 
+# Verify that the current browser session works before replacing the VM jar.
+yt-dlp --simulate --no-playlist \
+  --cookies-from-browser chrome \
+  --js-runtimes node \
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ" >/dev/null
+
 # Build the domain filter as a Python tuple string
 DOMAIN_TUPLE=$(printf '"%s",' "${YOUTUBE_DOMAINS[@]}")
 DOMAIN_TUPLE="(${DOMAIN_TUPLE%,})"
 
 # Extract, filter, format as Netscape cookie file, and pipe directly to VPS.
 # No local file is written at any point.
-python3 - <<PYEOF | ssh "$SSH_HOST" "
-  mkdir -p \$(dirname $REMOTE_DEST) &&
-  cat > $REMOTE_DEST &&
-  chmod 600 $REMOTE_DEST &&
-  echo 'Cookies written to $REMOTE_DEST'
+python3 - <<PYEOF | "${SSH[@]}" "
+  set -eu
+  test -d '$REMOTE_DIR'
+  candidate=\$(mktemp '$REMOTE_DIR/.cookies.XXXXXX')
+  trap 'rm -f \"\$candidate\"' EXIT
+  cat > \"\$candidate\"
+  awk '
+    BEGIN { count = 0; bad = 0 }
+    /^#/ || NF == 0 { next }
+    {
+      count++
+      domain = \$1
+      if (domain !~ /(^|\\.)youtube\\.com\$/ &&
+          domain !~ /(^|\\.)google\\.com\$/ &&
+          domain !~ /(^|\\.)googlevideo\\.com\$/ &&
+          domain !~ /(^|\\.)ytimg\\.com\$/ &&
+          domain !~ /(^|\\.)ggpht\\.com\$/ &&
+          domain !~ /(^|\\.)googleusercontent\\.com\$/ &&
+          domain !~ /(^|\\.)googleapis\\.com\$/) bad = 1
+    }
+    END { if (count == 0 || bad) exit 1 }
+  ' \"\$candidate\"
+  # yt-dlp updates cookie expiry values and saves the jar on exit, so the pod
+  # group needs write access as well as read access.
+  chmod 0660 \"\$candidate\"
+  mv -f \"\$candidate\" '$REMOTE_DEST'
+  trap - EXIT
+  echo 'Cookie jar replaced atomically'
 "
 import sys
 from http.cookiejar import CookieJar
@@ -68,14 +100,14 @@ sys.stderr.write(f"Filtered {count} YouTube/Google cookies\n")
 PYEOF
 
 echo ""
-echo "==> Verifying remote cookie file..."
-ssh "$SSH_HOST" '
-  FILE="$HOME/.config/yt-dlp/cookies.txt"
+echo "==> Verifying remote cookie file metadata..."
+"${SSH[@]}" '
+  FILE="/srv/mytube/cookies/cookies.txt"
   TOTAL=$(grep -c "^[^#]" "$FILE" 2>/dev/null || echo 0)
   echo "    Total cookies: $TOTAL"
   echo "    Domains present:"
   grep -v "^#" "$FILE" | awk "{print \$1}" | sort -u | sed "s/^/      /"
-  echo "    Permissions: $(stat -c "%a %U" "$FILE" 2>/dev/null || stat -f "%p %Su" "$FILE")"
+  echo "    Permissions: $(stat -c "%a %U:%G" "$FILE")"
   echo ""
   # Sanity check — must not contain known non-Google domains
   BAD=$(grep -v "^#" "$FILE" | awk "{print \$1}" | grep -vE "\.(google|youtube|googlevideo|ytimg|ggpht|googleusercontent|googleapis)\.com$" || true)
@@ -85,30 +117,4 @@ ssh "$SSH_HOST" '
   else
     echo "    Domain check passed — only YouTube/Google cookies present"
   fi
-'
-
-echo ""
-echo "==> Syncing cookies to mytube service user..."
-ssh "$SSH_HOST" '
-  DEST="/opt/mytube/data/cookies.txt"
-  if sudo test -d "/opt/mytube/data"; then
-    sudo cp "$HOME/.config/yt-dlp/cookies.txt" "$DEST"
-    sudo chown mytube:mytube "$DEST"
-    sudo chmod 600 "$DEST"
-    echo "    Synced to $DEST"
-  else
-    echo "    /opt/mytube/data not found — skipping service user sync"
-  fi
-'
-
-echo ""
-echo "==> Testing yt-dlp can use the cookies (simulate only, no download)..."
-ssh "$SSH_HOST" '
-  yt-dlp --simulate --no-playlist \
-    --cookies "$HOME/.config/yt-dlp/cookies.txt" \
-    --js-runtimes node \
-    --print "%(title)s | %(uploader)s" \
-    "https://www.youtube.com/watch?v=c1cBGW_zoyQ" 2>/dev/null \
-  && echo "    yt-dlp test passed" \
-  || echo "    yt-dlp test failed (cookies may have expired)"
 '

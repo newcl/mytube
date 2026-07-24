@@ -8,10 +8,8 @@ export function getApiBase(): string {
   );
 }
 
-const DEFAULT_TOKEN = 'a86ff4614dc198cdaaa004e344e2ea3656a88fbd07959ead78e7c496f426cfc4';
-
 export function getToken(): string {
-  return localStorage.getItem('mytube_token') || DEFAULT_TOKEN;
+  return localStorage.getItem('mytube_token') || '';
 }
 
 export function saveSettings(apiBase: string, token: string): void {

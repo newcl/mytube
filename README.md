@@ -61,4 +61,5 @@ Load `extension/` as an unpacked extension in Chrome (see [docs/extension-dev.md
 ## Deployment
 
 - VPS backend: [docs/deploy-vps.md](docs/deploy-vps.md)
+- Homelab k3s backend: [docs/deploy-k3s.md](docs/deploy-k3s.md)
 - Cloudflare Pages: [docs/deploy-cloudflare-pages.md](docs/deploy-cloudflare-pages.md)
