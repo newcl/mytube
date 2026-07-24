@@ -9,6 +9,9 @@
 #   bash scripts/install-native-macos.sh start
 #   bash scripts/install-native-macos.sh stop
 #   bash scripts/install-native-macos.sh restart
+#   bash scripts/install-native-macos.sh yt-dlp-status
+#   bash scripts/install-native-macos.sh update-yt-dlp
+#   bash scripts/install-native-macos.sh rollback-yt-dlp
 #   bash scripts/install-native-macos.sh uninstall
 
 set -euo pipefail
@@ -39,6 +42,26 @@ stop_if_loaded() {
   fi
 }
 
+restart_service() {
+  launchctl enable "${DOMAIN}/${LABEL}"
+  if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
+    launchctl kickstart -k "${DOMAIN}/${LABEL}"
+  else
+    launchctl bootstrap "$DOMAIN" "$PLIST"
+  fi
+}
+
+wait_for_health() {
+  for _ in {1..30}; do
+    if curl -fsS "http://127.0.0.1:8081/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "ERROR: MyTube did not become healthy after restart" >&2
+  return 1
+}
+
 case "$ACTION" in
   status)
     status
@@ -58,13 +81,27 @@ case "$ACTION" in
     exit 0
     ;;
   restart)
-    launchctl enable "${DOMAIN}/${LABEL}"
-    if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
-      launchctl kickstart -k "${DOMAIN}/${LABEL}"
-    else
-      launchctl bootstrap "$DOMAIN" "$PLIST"
-    fi
+    restart_service
+    wait_for_health
     status
+    exit 0
+    ;;
+  yt-dlp-status)
+    "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
+    exit 0
+    ;;
+  update-yt-dlp)
+    "$INSTALL_BINARY" yt-dlp update --config "$CONFIG_FILE"
+    restart_service
+    wait_for_health
+    "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
+    exit 0
+    ;;
+  rollback-yt-dlp)
+    "$INSTALL_BINARY" yt-dlp rollback --config "$CONFIG_FILE"
+    restart_service
+    wait_for_health
+    "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
     exit 0
     ;;
   uninstall)
@@ -77,7 +114,7 @@ case "$ACTION" in
   install)
     ;;
   *)
-    echo "usage: $0 [install [binary]|status|start|stop|restart|uninstall]" >&2
+    echo "usage: $0 [install [binary]|status|start|stop|restart|yt-dlp-status|update-yt-dlp|rollback-yt-dlp|uninstall]" >&2
     exit 2
     ;;
 esac
@@ -119,6 +156,7 @@ elif [[ ! -f "$CONFIG_FILE" ]]; then
     echo "MYTUBE_CONCURRENCY=2"
     echo "MYTUBE_COOKIE_BROWSER=chrome"
     echo "MYTUBE_JS_RUNTIME=deno"
+    echo "MYTUBE_YTDLP_UPDATE_INTERVAL=168h"
   } > "$CONFIG_FILE"
   chmod 0600 "$CONFIG_FILE"
   echo "Created protected configuration: $CONFIG_FILE"

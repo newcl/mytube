@@ -13,6 +13,8 @@ Implemented and verified:
 - a pinned, checksum-verified embedded `yt-dlp_macos`;
 - explicit and managed yt-dlp override paths;
 - `serve`, `doctor`, and `version` commands;
+- lightweight `yt-dlp status`, `update`, and `rollback` commands with managed
+  current/previous slots and the embedded copy as fallback;
 - startup recovery for interrupted downloads;
 - native build and user LaunchAgent management scripts;
 - passing backend tests and Linux ARM64 compatibility build;

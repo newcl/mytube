@@ -183,3 +183,28 @@ After public cutover:
    Prometheus metrics.
 
 No retained VM data is removed during the migration.
+
+## Lightweight yt-dlp maintenance
+
+- [x] Add `yt-dlp status`, `yt-dlp update`, and `yt-dlp rollback` commands.
+- [x] Seed a managed executable from the packaged fallback.
+- [x] Use yt-dlp's own stable-channel updater without rebuilding MyTube.
+- [x] Verify the updated executable and restore the previous copy on failure.
+- [x] Keep current and previous managed slots for one-command rollback.
+- [x] Add a one-command LaunchAgent workflow that updates, restarts, waits for
+      health, and reports the selected version.
+- [x] Add unit tests for successful update/rollback and failed-update recovery.
+- [x] Install and verify the updater-enabled native binary.
+- [x] Run the update checker inside the macOS app five minutes after startup
+      and weekly thereafter, without a second LaunchAgent.
+- [x] Switch new jobs to an atomically installed update without interrupting
+      active downloads.
+
+Verification evidence:
+
+- `bash scripts/install-native-macos.sh update-yt-dlp` confirmed that
+  stable `2026.07.04` is current.
+- The restarted service selected the managed executable.
+- Current and previous copies match the verified packaged SHA-256.
+- Public health and authenticated API access return HTTP `200`; public
+  byte-range serving returns HTTP `206`.

@@ -33,6 +33,8 @@ var (
 	buildDate    = "unknown"
 )
 
+const ytdlpInitialUpdateDelay = 5 * time.Minute
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -49,12 +51,88 @@ func run(args []string) int {
 		return serveCommand(args)
 	case "doctor":
 		return doctorCommand(args)
+	case "yt-dlp":
+		return ytDLPCommand(args)
 	case "version":
 		fmt.Printf("mytube %s (commit %s, built %s)\n", buildVersion, buildCommit, buildDate)
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", command)
-		fmt.Fprintln(os.Stderr, "usage: mytube [serve|doctor|version] [--config PATH]")
+		fmt.Fprintln(os.Stderr, "usage: mytube [serve|doctor|yt-dlp|version] [arguments]")
+		return 2
+	}
+}
+
+func ytDLPCommand(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: mytube yt-dlp [status|update|rollback] [--config PATH]")
+		return 2
+	}
+
+	action := args[0]
+	flags := flag.NewFlagSet("yt-dlp "+action, flag.ContinueOnError)
+	configPath := flags.String("config", "", "path to KEY=VALUE configuration file")
+	channel := flags.String("channel", "stable", "yt-dlp update channel or tag")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+
+	cfg, err := configPkg.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration: %v\n", err)
+		return 1
+	}
+	ctx := context.Background()
+
+	switch action {
+	case "status":
+		selected, err := toolingPkg.ResolveYTDLP(ctx, cfg.YTDLPPath, cfg.StateDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "yt-dlp: %v\n", err)
+			return 1
+		}
+		fmt.Printf("yt-dlp %s (%s)\n%s\n", selected.Version, selected.Source, selected.Path)
+		return 0
+
+	case "update":
+		if cfg.YTDLPPath != "" {
+			fmt.Fprintln(os.Stderr, "yt-dlp update is disabled while MYTUBE_YTDLP_PATH overrides the managed executable")
+			return 1
+		}
+		selected, err := toolingPkg.ResolveYTDLP(ctx, "", cfg.StateDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "yt-dlp: %v\n", err)
+			return 1
+		}
+		result, err := toolingPkg.UpdateManagedYTDLP(ctx, selected, cfg.StateDir, *channel)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "yt-dlp: %v\n", err)
+			return 1
+		}
+		if result.Output != "" {
+			fmt.Println(result.Output)
+		}
+		fmt.Printf("yt-dlp %s -> %s\n", result.Before.Version, result.After.Version)
+		fmt.Println("Restart MyTube to activate the managed version.")
+		return 0
+
+	case "rollback":
+		if cfg.YTDLPPath != "" {
+			fmt.Fprintln(os.Stderr, "yt-dlp rollback is disabled while MYTUBE_YTDLP_PATH overrides the managed executable")
+			return 1
+		}
+		result, err := toolingPkg.RollbackManagedYTDLP(ctx, cfg.StateDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "yt-dlp: %v\n", err)
+			return 1
+		}
+		fmt.Printf("yt-dlp %s -> %s\n", result.Before.Version, result.After.Version)
+		fmt.Println("Restart MyTube to activate the rolled-back version.")
+		return 0
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown yt-dlp action %q\n", action)
+		fmt.Fprintln(os.Stderr, "usage: mytube yt-dlp [status|update|rollback] [--config PATH]")
 		return 2
 	}
 }
@@ -115,6 +193,13 @@ func serveCommand(args []string) int {
 		cfg.JSRuntime,
 	)
 	go downloadWorker.Run(ctx)
+	if cfg.YTDLPUpdateInterval > 0 && cfg.YTDLPPath == "" {
+		go runYTDLPUpdater(ctx, cfg.StateDir, cfg.YTDLPUpdateInterval, downloadWorker)
+	} else if cfg.YTDLPPath != "" {
+		log.Printf("yt-dlp updater: disabled because MYTUBE_YTDLP_PATH is configured")
+	} else {
+		log.Printf("yt-dlp updater: disabled")
+	}
 
 	server := &http.Server{
 		Addr:         cfg.Bind,
@@ -153,6 +238,39 @@ func serveCommand(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runYTDLPUpdater(ctx context.Context, stateDir string, interval time.Duration, worker *workerPkg.Worker) {
+	log.Printf("yt-dlp updater: scheduled first check in %s, then every %s", ytdlpInitialUpdateDelay, interval)
+	timer := time.NewTimer(ytdlpInitialUpdateDelay)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+
+		selected, err := toolingPkg.ResolveYTDLP(ctx, "", stateDir)
+		if err != nil {
+			log.Printf("yt-dlp updater: resolve current version: %v", err)
+		} else {
+			result, updateErr := toolingPkg.UpdateManagedYTDLP(ctx, selected, stateDir, "stable")
+			if updateErr != nil {
+				log.Printf("yt-dlp updater: check failed; keeping %s: %v", selected.Version, updateErr)
+			} else {
+				worker.SetYTDLPPath(result.After.Path)
+				if result.Before.Version == result.After.Version {
+					log.Printf("yt-dlp updater: %s is current", result.After.Version)
+				} else {
+					log.Printf("yt-dlp updater: updated %s -> %s; new jobs use the update", result.Before.Version, result.After.Version)
+				}
+			}
+		}
+
+		timer.Reset(interval)
+	}
 }
 
 func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config) http.Handler {

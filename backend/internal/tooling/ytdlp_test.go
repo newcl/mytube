@@ -1,6 +1,7 @@
 package tooling
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -42,5 +43,87 @@ func TestMaterializeRejectsChecksumMismatch(t *testing.T) {
 
 	if _, err := materializeYTDLP([]byte("payload"), t.TempDir()); err == nil {
 		t.Fatal("expected checksum error")
+	}
+}
+
+func TestUpdateAndRollbackManagedYTDLP(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source-yt-dlp")
+	script := `#!/bin/sh
+VERSION=1.0
+case "$1" in
+  --version)
+    printf '%s\n' "$VERSION"
+    ;;
+  --update-to)
+    sed 's/VERSION=1.0/VERSION=2.0/' "$0" > "$0.next"
+    chmod 0755 "$0.next"
+    mv "$0.next" "$0"
+    printf 'updated to 2.0\n'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+	if err := os.WriteFile(sourcePath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	update, err := UpdateManagedYTDLP(ctx, YTDLP{Path: sourcePath, Version: "1.0"}, dir, "stable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.Before.Version != "1.0" || update.After.Version != "2.0" {
+		t.Fatalf("unexpected update: %#v", update)
+	}
+
+	selected, err := ResolveYTDLP(ctx, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Source != "managed" || selected.Version != "2.0" {
+		t.Fatalf("unexpected managed selection: %#v", selected)
+	}
+
+	rollback, err := RollbackManagedYTDLP(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rollback.Before.Version != "2.0" || rollback.After.Version != "1.0" {
+		t.Fatalf("unexpected rollback: %#v", rollback)
+	}
+}
+
+func TestFailedUpdateRestoresManagedYTDLP(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source-yt-dlp")
+	script := `#!/bin/sh
+case "$1" in
+  --version) printf '1.0\n' ;;
+  --update-to) printf 'update failed\n'; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(sourcePath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := UpdateManagedYTDLP(
+		context.Background(),
+		YTDLP{Path: sourcePath, Version: "1.0"},
+		dir,
+		"stable",
+	)
+	if err == nil {
+		t.Fatal("expected update failure")
+	}
+
+	selected, err := ResolveYTDLP(context.Background(), "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Version != "1.0" {
+		t.Fatalf("managed version was not restored: %#v", selected)
 	}
 }

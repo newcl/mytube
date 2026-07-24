@@ -39,6 +39,21 @@ type Worker struct {
 	jsRuntime     string // if set, pass --js-runtimes <runtime> to yt-dlp
 	sem           chan struct{}
 	backfillMu    sync.Mutex
+	ytdlpMu       sync.RWMutex
+}
+
+// SetYTDLPPath changes the executable used by jobs started after this call.
+// A download already in progress keeps using the process it started with.
+func (w *Worker) SetYTDLPPath(path string) {
+	w.ytdlpMu.Lock()
+	w.ytdlpPath = path
+	w.ytdlpMu.Unlock()
+}
+
+func (w *Worker) currentYTDLPPath() string {
+	w.ytdlpMu.RLock()
+	defer w.ytdlpMu.RUnlock()
+	return w.ytdlpPath
 }
 
 // New creates a new Worker.
@@ -153,7 +168,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 	args = append(args, job.URL)
 
-	cmd := exec.CommandContext(ctx, w.ytdlpPath, args...)
+	cmd := exec.CommandContext(ctx, w.currentYTDLPPath(), args...)
 
 	var logBuf bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -463,7 +478,7 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 	dlCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(dlCtx, w.ytdlpPath, args...)
+	cmd := exec.CommandContext(dlCtx, w.currentYTDLPPath(), args...)
 	output, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(output))
 	if err != nil {

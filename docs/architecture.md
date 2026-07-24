@@ -104,8 +104,16 @@ The same executable provides:
 
 - `mytube serve --config <path>`
 - `mytube doctor --config <path>`
+- `mytube yt-dlp status --config <path>`
+- `mytube yt-dlp update --config <path>`
+- `mytube yt-dlp rollback --config <path>`
 - `mytube version`
 
 `doctor` verifies the loopback bind, state paths, SQLite, selected yt-dlp,
 browser-cookie configuration, ffmpeg/ffprobe, and JavaScript runtime without
 printing secrets.
+
+The yt-dlp updater maintains `current` and `previous` executable slots under
+the Application Support tool directory. It uses yt-dlp's own release updater,
+validates the updated executable, restores automatically on failure, and keeps
+the embedded version unchanged as a final fallback.

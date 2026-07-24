@@ -99,6 +99,47 @@ Run diagnostics manually:
   --config "$HOME/Library/Application Support/MyTube/mytube.env"
 ```
 
+## Lightweight yt-dlp updates
+
+The macOS app checks for a stable yt-dlp update five minutes after startup and
+then once a week. The checker runs inside MyTube; it does not install another
+LaunchAgent. Updates are installed atomically, and new jobs use the new
+executable without restarting MyTube. A download already in progress is not
+interrupted.
+
+The default interval is `168h`. Override it in `mytube.env`, or disable
+automatic checks with:
+
+```text
+MYTUBE_YTDLP_UPDATE_INTERVAL=0
+```
+
+You can still check immediately without rebuilding MyTube:
+
+```bash
+bash scripts/install-native-macos.sh update-yt-dlp
+```
+
+This command:
+
+- seeds a managed executable from the packaged fallback when needed;
+- runs yt-dlp's own stable-channel updater;
+- verifies the updated executable;
+- keeps the previous executable for rollback;
+- restarts the LaunchAgent and waits for local health.
+
+Check the selected version or roll back:
+
+```bash
+bash scripts/install-native-macos.sh yt-dlp-status
+bash scripts/install-native-macos.sh rollback-yt-dlp
+```
+
+The service prefers the managed version under
+`~/Library/Application Support/MyTube/tools/yt-dlp/current/`. Removing or
+rolling back that version never changes the embedded fallback in the MyTube
+binary.
+
 ## Browser authentication
 
 The default native configuration uses:
