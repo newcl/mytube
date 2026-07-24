@@ -88,12 +88,13 @@ client to avoid progressive URLs that require a per-video PO token.
 The Mac refreshes the jar every six hours:
 
 ```text
-Chrome/Keychain -> filtered Netscape jar -> SSH -> /srv/mytube/cookies/cookies.txt
+Chrome/Keychain -> youtube.com-only Netscape jar -> SSH -> /srv/mytube/cookies/cookies.txt
 ```
 
-The transfer is atomic and does not create a local cookie file. The remote jar
-is mode `0660`, owned by `liang:mytube`; yt-dlp needs group write access because
-it updates cookie expiry values when it exits.
+The transfer is atomic, includes only `youtube.com` and its subdomains, and does
+not create a local cookie file. The remote jar is mode `0660`, owned by
+`liang:mytube`; yt-dlp needs group write access because it updates cookie expiry
+values when it exits.
 
 One-time VM setup:
 

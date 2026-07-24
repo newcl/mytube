@@ -2,7 +2,7 @@
 # Extract YouTube-only cookies from local Chrome and push them to the homelab VM.
 #
 # - Never writes cookies to a local file (piped straight to SSH)
-# - Filters to YouTube/Google domains only
+# - Filters to youtube.com and its subdomains only
 # - Replaces the remote cookie jar atomically
 #
 # Usage:
@@ -18,18 +18,6 @@ REMOTE_DIR="/srv/mytube/cookies"
 REMOTE_DEST="${REMOTE_DIR}/cookies.txt"
 SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes "$SSH_HOST")
 
-# YouTube + Google domains required for yt-dlp authentication.
-# Intentionally narrow — no banking, social, or other site cookies.
-YOUTUBE_DOMAINS=(
-  ".youtube.com"
-  ".google.com"
-  ".googlevideo.com"
-  ".ytimg.com"
-  ".ggpht.com"
-  ".googleusercontent.com"
-  ".googleapis.com"
-)
-
 echo "==> Extracting YouTube-only cookies from Chrome..."
 echo "    (macOS will prompt for Keychain access — click Allow)"
 echo ""
@@ -40,11 +28,7 @@ yt-dlp --simulate --no-playlist \
   --js-runtimes node \
   "https://www.youtube.com/watch?v=dQw4w9WgXcQ" >/dev/null
 
-# Build the domain filter as a Python tuple string
-DOMAIN_TUPLE=$(printf '"%s",' "${YOUTUBE_DOMAINS[@]}")
-DOMAIN_TUPLE="(${DOMAIN_TUPLE%,})"
-
-# Extract, filter, format as Netscape cookie file, and pipe directly to VPS.
+# Extract, filter, format as a Netscape cookie file, and pipe directly to the VM.
 # No local file is written at any point.
 python3 - <<PYEOF | "${SSH[@]}" "
   set -eu
@@ -58,13 +42,7 @@ python3 - <<PYEOF | "${SSH[@]}" "
     {
       count++
       domain = \$1
-      if (domain !~ /(^|\\.)youtube\\.com\$/ &&
-          domain !~ /(^|\\.)google\\.com\$/ &&
-          domain !~ /(^|\\.)googlevideo\\.com\$/ &&
-          domain !~ /(^|\\.)ytimg\\.com\$/ &&
-          domain !~ /(^|\\.)ggpht\\.com\$/ &&
-          domain !~ /(^|\\.)googleusercontent\\.com\$/ &&
-          domain !~ /(^|\\.)googleapis\\.com\$/) bad = 1
+      if (domain !~ /(^|\\.)youtube\\.com\$/) bad = 1
     }
     END { if (count == 0 || bad) exit 1 }
   ' \"\$candidate\"
@@ -79,15 +57,13 @@ import sys
 from http.cookiejar import CookieJar
 from yt_dlp.cookies import extract_cookies_from_browser
 
-DOMAINS = $DOMAIN_TUPLE
-
 jar: CookieJar = extract_cookies_from_browser("chrome")
 
-lines = ["# Netscape HTTP Cookie File", "# Filtered: YouTube/Google domains only", ""]
+lines = ["# Netscape HTTP Cookie File", "# Filtered: youtube.com only", ""]
 count = 0
 for c in jar:
-    # Match if cookie domain ends with any allowed domain
-    if not any(c.domain == d or c.domain.endswith(d) for d in DOMAINS):
+    domain = c.domain.lstrip(".").lower()
+    if domain != "youtube.com" and not domain.endswith(".youtube.com"):
         continue
     secure = "TRUE" if c.secure else "FALSE"
     subdomain = "TRUE" if c.domain.startswith(".") else "FALSE"
@@ -96,7 +72,7 @@ for c in jar:
     count += 1
 
 print("\n".join(lines), file=sys.stdout)
-sys.stderr.write(f"Filtered {count} YouTube/Google cookies\n")
+sys.stderr.write(f"Filtered {count} youtube.com cookies\n")
 PYEOF
 
 echo ""
@@ -109,12 +85,12 @@ echo "==> Verifying remote cookie file metadata..."
   grep -v "^#" "$FILE" | awk "{print \$1}" | sort -u | sed "s/^/      /"
   echo "    Permissions: $(stat -c "%a %U:%G" "$FILE")"
   echo ""
-  # Sanity check — must not contain known non-Google domains
-  BAD=$(grep -v "^#" "$FILE" | awk "{print \$1}" | grep -vE "\.(google|youtube|googlevideo|ytimg|ggpht|googleusercontent|googleapis)\.com$" || true)
+  # Sanity check — every cookie must belong to youtube.com.
+  BAD=$(grep -v "^#" "$FILE" | awk "{print \$1}" | grep -vE "(^|\.)youtube\.com$" || true)
   if [ -n "$BAD" ]; then
     echo "WARNING: unexpected domains found:"
     echo "$BAD"
   else
-    echo "    Domain check passed — only YouTube/Google cookies present"
+    echo "    Domain check passed — only youtube.com cookies present"
   fi
 '

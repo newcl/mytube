@@ -48,7 +48,8 @@ logs. It must be entered in the frontend Settings panel and any extension.
 6. Removed the old explicit DNS record so the existing `*.elladali.com`
    wildcard route could send the hostname to the VM tunnel.
 7. Added Node as yt-dlp's JavaScript runtime.
-8. Added cookie-file support and an atomic Mac-to-VM cookie refresh workflow.
+8. Added cookie-file support and an atomic Mac-to-VM, `youtube.com`-only cookie
+   refresh workflow.
 9. Selected YouTube's `web_safari` HLS format path for downloads.
 10. Verified a real public API download, HTTP byte-range serving, and
     persistence across a pod restart.
@@ -138,9 +139,14 @@ Run it manually:
 bash scripts/push-yt-cookies.sh
 ```
 
-The cookie jar is highly sensitive. Use a dedicated YouTube account/profile,
-never commit the jar, and do not print its contents. yt-dlp warns that YouTube
-may temporarily or permanently restrict accounts used for automated downloads.
+The original refresh briefly exported broader `.google.com` cookies. On
+2026-07-23 the filter was narrowed to `youtube.com` and its subdomains, and the
+old broad jar was securely overwritten and removed while the pod was stopped.
+
+The cookie jar remains highly sensitive. Use a dedicated YouTube
+account/profile, never commit the jar, and do not print its contents. yt-dlp
+warns that YouTube may temporarily or permanently restrict accounts used for
+automated downloads.
 
 ### Application health
 
