@@ -24,6 +24,7 @@ DOMAIN="gui/$(id -u)"
 APP_DIR="$HOME/Library/Application Support/MyTube"
 INSTALL_BINARY="$APP_DIR/mytube"
 CONFIG_FILE="$APP_DIR/mytube.env"
+LEGACY_CONFIG_FILE="$APP_DIR/.env"
 DOWNLOAD_DIR="$APP_DIR/downloads"
 LOG_DIR="$HOME/Library/Logs/MyTube"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
@@ -97,7 +98,17 @@ chmod 0700 "$APP_DIR"
 stop_if_loaded
 install -m 0755 "$SOURCE_BINARY" "$INSTALL_BINARY"
 
-if [[ ! -f "$CONFIG_FILE" ]]; then
+if [[ ! -f "$CONFIG_FILE" && -f "$LEGACY_CONFIG_FILE" ]]; then
+  install -m 0600 "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+  chmod 0600 "$LEGACY_CONFIG_FILE"
+  # The legacy service listened on all interfaces. The native service is
+  # published by cloudflared and should only accept loopback connections.
+  sed -i '' 's/^MYTUBE_BIND=.*/MYTUBE_BIND=127.0.0.1:8081/' "$CONFIG_FILE"
+  if ! grep -q '^MYTUBE_JS_RUNTIME=' "$CONFIG_FILE"; then
+    echo "MYTUBE_JS_RUNTIME=deno" >> "$CONFIG_FILE"
+  fi
+  echo "Migrated legacy configuration and preserved its token/data paths."
+elif [[ ! -f "$CONFIG_FILE" ]]; then
   TOKEN="$(openssl rand -hex 32)"
   {
     echo "MYTUBE_TOKEN=$TOKEN"

@@ -1,5 +1,24 @@
 # Mac Mini to k3s migration — 2026-07-23
 
+## Native Mac cutover update
+
+Later on 2026-07-23, MyTube moved back to a replacement native Apple Silicon
+service on the Mac:
+
+- `mytubeapi.elladali.com` now has an exact DNS record targeting the Mac
+  Cloudflare Tunnel; the wildcard continues to target the VM tunnel for other
+  applications.
+- The Mac service is the public backend and is verified for health,
+  authenticated API access, a browser-authenticated download, restart
+  persistence, and HTTP 206 byte-range serving.
+- The k3s MyTube Deployment, Service, and Ingress were removed.
+- The `mytube` namespace, 75 GiB retained PVC/PV, `/srv/mytube`, SQLite
+  database, downloads, and cookie jar remain intact as rollback assets.
+- The obsolete Mac-to-VM cookie-refresh LaunchAgent was uninstalled.
+
+The remainder of this document records the earlier k3s migration and is kept
+as rollback history.
+
 ## Outcome
 
 The MyTube backend moved from a macOS launch agent on the Mac Mini to the

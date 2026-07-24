@@ -119,19 +119,43 @@ Verification evidence:
 
 ### Phase 5 — cutover (infrastructure change)
 
-- [ ] Back up the Mac SQLite database and record whether the cutover uses a
+- [x] Back up the Mac SQLite database and record whether the cutover uses a
       clean database or migrated VM data.
-- [ ] Install and start the user LaunchAgent.
-- [ ] Verify local health, authenticated API access, download, playback, and
+- [x] Install and start the user LaunchAgent.
+- [x] Verify local health, authenticated API access, download, playback, and
       restart recovery.
-- [ ] Add an explicit `mytubeapi.elladali.com` route to the existing Mac
+- [x] Add an explicit `mytubeapi.elladali.com` route to the existing Mac
       Cloudflare Tunnel.
-- [ ] Verify public health, authentication, job progress, and HTTP 206 serving.
-- [ ] Scale the k3s MyTube Deployment to zero without deleting its namespace,
-      PVC, PV, database, or downloads.
-- [ ] Disable the obsolete Mac-to-VM cookie refresh only after successful
+- [x] Verify public health, authentication, job progress, and HTTP 206 serving.
+- [x] Remove the k3s MyTube Deployment, Service, and Ingress without deleting
+      its namespace, PVC, PV, database, downloads, or cookie jar.
+- [x] Disable the obsolete Mac-to-VM cookie refresh only after successful
       public verification.
-- [ ] Update the homelab execution tracker and handoff.
+- [x] Update the homelab execution tracker and handoff.
+
+Mac installation evidence:
+
+- The legacy Mac library was selected rather than VM data: 43 completed jobs
+  and approximately 18 GiB of downloads were preserved.
+- Pre-install SQLite backup:
+  `~/Library/Application Support/MyTube/backups/mytube-20260723-before-native-install.db`.
+- `com.mytube.server` is enabled and running as a user LaunchAgent.
+- The origin listens only on `127.0.0.1:8081`.
+- Local health returned HTTP `200`; unauthenticated API access returned
+  HTTP `401`; authenticated access returned HTTP `200`.
+- A new browser-authenticated download completed in the installed LaunchAgent
+  context and returned HTTP `206` for a byte-range request.
+- The verification job and all of its media/subtitle artifacts were removed.
+- A managed LaunchAgent restart returned to HTTP `200`.
+- The exact `mytubeapi.elladali.com` DNS record targets the Mac tunnel while
+  the wildcard continues to target the VM tunnel for other applications.
+- Public health and authenticated API access return HTTP `200`; public
+  byte-range serving returns HTTP `206`.
+- The k3s Deployment, Service, and Ingress were removed. The `mytube`
+  namespace, bound 75 GiB retained PVC/PV, `/srv/mytube` data, SQLite database,
+  downloads, and cookie jar remain as rollback assets.
+- The obsolete `com.mytube.cookie-refresh` LaunchAgent and its installed copy
+  of the push script were removed.
 
 ## Verification gates
 

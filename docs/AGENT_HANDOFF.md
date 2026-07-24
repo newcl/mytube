@@ -18,10 +18,16 @@ Implemented and verified:
 - passing backend tests and Linux ARM64 compatibility build;
 - a real Chrome-authenticated download and HTTP 206 media serving.
 
-The native service has not replaced the k3s deployment yet. Phase 5 remains a
-deliberate infrastructure cutover: install the LaunchAgent, verify locally,
-route the explicit MyTube hostname to the Mac tunnel, verify publicly, and
-only then scale the VM Deployment to zero. Do not delete retained VM storage.
+The native service replaced the k3s application on 2026-07-23. The exact
+`mytubeapi.elladali.com` DNS record targets the Mac tunnel; the wildcard
+continues to target the VM tunnel for other applications. Public health,
+authenticated API access, and HTTP 206 serving are verified.
+
+The k3s MyTube Deployment, Service, and Ingress were removed. The namespace,
+bound 75 GiB retained PVC/PV, `/srv/mytube` data, SQLite database, downloads,
+and cookie jar remain as rollback assets. The Mac-to-VM cookie-refresh
+LaunchAgent was uninstalled. Do not delete retained VM storage unless the user
+explicitly requests it.
 
 The historical requirements below describe the original implementation and
 remain useful as API/product context.

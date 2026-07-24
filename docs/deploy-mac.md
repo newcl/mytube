@@ -54,6 +54,8 @@ This step:
 
 - installs the binary under `~/Library/Application Support/MyTube/`;
 - creates a mode-`0600` configuration file when one does not exist;
+- migrates a legacy `.env` when present, preserving its API token, SQLite
+  database, and download paths;
 - runs `mytube doctor`;
 - installs `com.mytube.server` as a user LaunchAgent;
 - starts the service on `127.0.0.1:8081`.
