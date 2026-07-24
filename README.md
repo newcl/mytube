@@ -11,7 +11,7 @@ Personal YouTube downloader + library UI + Chrome extension.
 | Chrome extension | MV3 | Local install |
 
 - Frontend: `https://mytube.elladali.com`
-- Backend: `https://api.mytube.elladali.com`
+- Backend: `https://mytubeapi.elladali.com`
 
 ## Repo layout
 

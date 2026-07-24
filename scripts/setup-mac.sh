@@ -9,7 +9,7 @@
 #   5. Guides you through creating the cloudflared tunnel
 #   6. Installs a launchd agent for cloudflared
 #
-# After this runs, api.mytube.elladali.com → cloudflared tunnel → localhost:8081
+# After this runs, mytubeapi.elladali.com → cloudflared tunnel → localhost:8081
 # yt-dlp reads cookies directly from Chrome — no cookie file management needed.
 #
 # Usage:
@@ -35,7 +35,7 @@ SERVER_PLIST="$HOME/Library/LaunchAgents/${SERVER_LABEL}.plist"
 CF_PLIST="$HOME/Library/LaunchAgents/${CF_LABEL}.plist"
 
 TUNNEL_NAME="mytube"
-HOSTNAME="api.mytube.elladali.com"
+HOSTNAME="mytubeapi.elladali.com"
 LOCAL_PORT="8081"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'

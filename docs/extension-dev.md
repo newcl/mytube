@@ -16,7 +16,7 @@ The extension is in the `extension/` directory and is a Chrome MV3 extension.
 
 1. Click the extension icon → **Options** (or right-click → Options)
 2. Set:
-   - **API Base URL**: `https://api.mytube.elladali.com`
+   - **API Base URL**: `https://mytubeapi.elladali.com`
    - **Token**: your `MYTUBE_TOKEN` value
 3. Click **Save**
 

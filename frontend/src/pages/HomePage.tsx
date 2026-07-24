@@ -938,7 +938,7 @@ function SettingsModal() {
             <Input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
-              placeholder="https://api.mytube.elladali.com"
+              placeholder="https://mytubeapi.elladali.com"
             />
           </div>
           <div>

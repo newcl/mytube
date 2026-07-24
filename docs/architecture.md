@@ -10,7 +10,7 @@ MyTube is a personal YouTube downloader with a web UI and Chrome extension. It i
 ┌──────────────────────────────────────────────────────────┐
 │ Chrome extension (MV3)                                    │
 │   • reads current tab URL                                 │
-│   • POST /api/jobs  →  api.mytube.elladali.com            │
+│   • POST /api/jobs  →  mytubeapi.elladali.com             │
 └──────────────────────────────┬───────────────────────────┘
                                │
 ┌──────────────────────────────▼───────────────────────────┐
@@ -24,7 +24,7 @@ MyTube is a personal YouTube downloader with a web UI and Chrome extension. It i
                                │ HTTPS
 ┌──────────────────────────────▼───────────────────────────┐
 │ Backend (Oracle VPS)                                      │
-│   api.mytube.elladali.com                                 │
+│   mytubeapi.elladali.com                                  │
 │                                                           │
 │   ┌──────────────┐   ┌─────────────────────────────────┐ │
 │   │  HTTP API    │   │  Download Worker                │ │

@@ -1,11 +1,30 @@
-// API base URL — can be overridden by VITE_API_BASE_URL at build time
-// Falls back to localStorage at runtime for dynamic config via the Settings panel
+export const DEFAULT_API_BASE = 'https://mytubeapi.elladali.com';
+
+const LEGACY_API_BASES = new Set([
+  'https://api.mytube.elladali.com',
+  'https://mytube.elladali.com',
+]);
+
+function normalizeApiBase(apiBase: string): string {
+  const normalized = apiBase.trim().replace(/\/+$/, '');
+  return LEGACY_API_BASES.has(normalized) ? DEFAULT_API_BASE : normalized;
+}
+
+// API base URL — local settings take precedence over the build-time value.
+// Legacy production URLs are migrated automatically on first load.
 export function getApiBase(): string {
-  return (
-    localStorage.getItem('mytube_api_base') ||
+  const stored = localStorage.getItem('mytube_api_base');
+  const resolved = normalizeApiBase(
+    stored ||
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-    'https://mytubeapi.elladali.com'
+    DEFAULT_API_BASE,
   );
+
+  if (stored !== null && stored !== resolved) {
+    localStorage.setItem('mytube_api_base', resolved);
+  }
+
+  return resolved;
 }
 
 export function getToken(): string {
@@ -13,7 +32,7 @@ export function getToken(): string {
 }
 
 export function saveSettings(apiBase: string, token: string): void {
-  localStorage.setItem('mytube_api_base', apiBase.replace(/\/+$/, ''));
+  localStorage.setItem('mytube_api_base', normalizeApiBase(apiBase));
   localStorage.setItem('mytube_token', token);
 }
 

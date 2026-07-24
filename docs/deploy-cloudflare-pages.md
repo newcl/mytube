@@ -25,7 +25,7 @@ Set these in the Cloudflare Pages dashboard under **Settings → Environment var
 
 | Variable | Value |
 |----------|-------|
-| `VITE_API_BASE_URL` | `https://api.mytube.elladali.com` |
+| `VITE_API_BASE_URL` | `https://mytubeapi.elladali.com` |
 
 > The `MYTUBE_TOKEN` is **not** set as a build-time env var — it is entered by the user at runtime in the Settings panel and stored in `localStorage`.
 
