@@ -75,4 +75,67 @@
   body {
     @apply bg-background text-foreground;
   }
-} 
+}
+
+/*
+ * Tailwind's `sm` breakpoint also matches phones held horizontally. Keep the
+ * player truly fullscreen on short landscape viewports instead of squeezing a
+ * desktop-shaped dialog into the available height.
+ */
+@media (orientation: landscape) and (max-height: 600px) {
+  .player-modal {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-width: none !important;
+    padding: 0 !important;
+    transform: none !important;
+    border-radius: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .player-modal-header {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    right: 0;
+    left: 0;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    justify-content: flex-end;
+    pointer-events: none;
+    background: transparent;
+  }
+
+  .player-modal-header > span {
+    display: none;
+  }
+
+  .player-modal-header > button {
+    pointer-events: auto;
+    background: rgb(0 0 0 / 0.55);
+  }
+
+  .player-video-shell {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    aspect-ratio: auto !important;
+  }
+
+  .player-download-progress {
+    position: absolute;
+    z-index: 20;
+    top: max(0.5rem, env(safe-area-inset-top));
+    right: auto;
+    bottom: auto;
+    left: 50%;
+    width: min(68vw, 28rem);
+    padding: 0.5rem 0.75rem;
+    transform: translateX(-50%);
+    border-radius: 0.5rem;
+    background: rgb(0 0 0 / 0.72);
+  }
+}

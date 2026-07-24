@@ -633,8 +633,6 @@ function JobRow({
 function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void; startTime?: number }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
-  const [pipAvailable, setPipAvailable] = useState(false);
-  const [pipActive, setPipActive] = useState(false);
   const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
   const isDownloading = liveJob?.status === 'downloading';
@@ -642,31 +640,31 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
   useEffect(() => {
     if (!job) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handler);
+    };
   }, [job, onClose]);
 
   useEffect(() => {
     if (!job) return;
     setBgPlaybackWarning('');
-    setPipActive(false);
+    pipActiveRef.current = false;
   }, [job]);
-
-  useEffect(() => {
-    pipActiveRef.current = pipActive;
-  }, [pipActive]);
 
   useEffect(() => {
     if (!job) return;
     const video = videoRef.current as PictureInPictureVideo | null;
     if (!video) return;
-    const standardPiP = !!document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function';
-    const webkitPiP = !!video.webkitSupportsPresentationMode?.('picture-in-picture');
-    setPipAvailable(standardPiP || webkitPiP);
 
-    const onEnter = () => setPipActive(true);
-    const onLeave = () => setPipActive(false);
-    const onWebkitModeChanged = () => setPipActive(video.webkitPresentationMode === 'picture-in-picture');
+    const onEnter = () => { pipActiveRef.current = true; };
+    const onLeave = () => { pipActiveRef.current = false; };
+    const onWebkitModeChanged = () => {
+      pipActiveRef.current = video.webkitPresentationMode === 'picture-in-picture';
+    };
     video.addEventListener('enterpictureinpicture', onEnter);
     video.addEventListener('leavepictureinpicture', onLeave);
     video.addEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
@@ -821,45 +819,30 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       video.removeEventListener('pause', onPause);
       video.removeEventListener('play', onPlay);
     };
-  }, [job, pipActive]);
+  }, [job]);
 
   if (!job) return null;
-
-  async function handlePictureInPicture() {
-    const video = videoRef.current as PictureInPictureVideo | null;
-    if (!video) return;
-    try {
-      if (document.pictureInPictureElement === video) {
-        await document.exitPictureInPicture();
-        return;
-      }
-      if (typeof video.requestPictureInPicture === 'function') {
-        await video.requestPictureInPicture();
-        return;
-      }
-      if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {
-        video.webkitSetPresentationMode?.('picture-in-picture');
-      }
-    } catch {
-      setBgPlaybackWarning('Could not start Picture-in-Picture on this browser. Keep this tab/app in the foreground to continue playback.');
-    }
-  }
 
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/80" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex flex-col bg-black pb-[env(safe-area-inset-bottom,12px)] sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(90vw,56rem)] sm:rounded-lg sm:overflow-hidden sm:pb-0">
-        <div className="flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
+      <div
+        className="player-modal fixed inset-0 z-50 flex flex-col bg-black pb-[env(safe-area-inset-bottom,12px)] sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(90vw,56rem)] sm:rounded-lg sm:overflow-hidden sm:pb-0"
+        role="dialog"
+        aria-modal="true"
+        aria-label={job.title || 'Video player'}
+      >
+        <div className="player-modal-header flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
           <span className="text-white text-sm font-medium truncate flex-1">{job.title || 'Video'}</span>
           <button
             onClick={onClose}
-            className="text-white/60 hover:text-white text-xl leading-none shrink-0"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl leading-none text-white/70 hover:bg-white/10 hover:text-white"
             aria-label="Close"
           >
             ✕
           </button>
         </div>
-        <div className="relative flex-1 bg-black sm:flex-none sm:aspect-video">
+        <div className="player-video-shell relative flex-1 bg-black sm:flex-none sm:aspect-video">
           <video
             ref={videoRef}
             controls
@@ -870,23 +853,6 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             key={job.id}
             onEnded={onEnded}
           />
-          <button
-            onClick={handlePictureInPicture}
-            disabled={!pipAvailable}
-            className="absolute top-3 left-3 z-10 flex items-center justify-center w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            aria-label={pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}
-            title={pipAvailable ? (pipActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture') : 'Picture-in-Picture is not available in this browser'}
-          >
-            {pipActive ? (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                <path d="M21 3a1 1 0 0 1 1 1v7h-2V5H4v14h6v2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h18zm-1 10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h8zm-1 2h-6v4h6v-4z"/>
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                <path d="M21 3a1 1 0 0 1 1 1v7h-2V5H4v14h6v2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h18zm0 10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h8z"/>
-              </svg>
-            )}
-          </button>
           {bgPlaybackWarning && (
             <div className="absolute bottom-10 left-3 right-3 z-10">
               <p className="text-xs text-amber-300 bg-black/70 px-3 py-1.5 rounded">
@@ -896,7 +862,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
           )}
         </div>
         {isDownloading && (
-          <div className="px-4 py-2 bg-neutral-900 shrink-0">
+          <div className="player-download-progress px-4 py-2 bg-neutral-900 shrink-0">
             <div className="flex justify-between text-xs text-white/60 mb-1">
               <span>Downloading… {pct.toFixed(1)}%</span>
               <span>{liveJob.progress?.speed ?? ''}{liveJob.progress?.eta ? ` · ETA ${liveJob.progress.eta}` : ''}</span>
