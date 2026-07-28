@@ -26,6 +26,7 @@ const (
 	pollInterval         = 2 * time.Second
 	subBackfillInterval  = 1 * time.Minute
 	subBackfillBatchSize = 20
+	hlsConcurrentFrags   = 4
 )
 
 // Worker polls for queued jobs and runs them concurrently up to concurrency.
@@ -149,6 +150,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		// require a per-video PO token even with authenticated cookies.
 		"--extractor-args", "youtube:player_client=web_safari",
 		"--format", "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+		"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
 		"--write-info-json",
 		"--no-playlist",
 		"--output", outputTemplate,

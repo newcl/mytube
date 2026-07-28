@@ -73,10 +73,11 @@ See [adr/0001-auth-bearer-token.md](adr/0001-auth-bearer-token.md).
 1. A client posts `{url}` to `/api/jobs`.
 2. The worker claims a queued job within the single process.
 3. yt-dlp reads cookies directly from the configured browser profile.
-4. The worker parses progress and throttles SQLite writes.
-5. yt-dlp writes media and metadata to local storage.
-6. The job becomes `completed` or `failed`.
-7. The API serves completed or in-progress media with byte-range support.
+4. HLS downloads fetch up to four media fragments concurrently.
+5. The worker parses progress and throttles SQLite writes.
+6. yt-dlp writes media and metadata to local storage.
+7. The job becomes `completed` or `failed`.
+8. The API serves completed or in-progress media with byte-range support.
 
 Jobs left in `downloading` after an unclean service exit are returned to
 `queued` during the next startup.
