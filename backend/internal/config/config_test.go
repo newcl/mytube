@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestDarwinDefaults(t *testing.T) {
@@ -19,9 +18,6 @@ func TestDarwinDefaults(t *testing.T) {
 	if cfg.CookieBrowser != "chrome" {
 		t.Fatalf("CookieBrowser = %q", cfg.CookieBrowser)
 	}
-	if cfg.YTDLPUpdateInterval != 7*24*time.Hour {
-		t.Fatalf("YTDLPUpdateInterval = %s", cfg.YTDLPUpdateInterval)
-	}
 }
 
 func TestLinuxDefaultsRemainCompatible(t *testing.T) {
@@ -31,9 +27,6 @@ func TestLinuxDefaultsRemainCompatible(t *testing.T) {
 	}
 	if cfg.CookieBrowser != "" {
 		t.Fatalf("unexpected Linux cookie browser: %q", cfg.CookieBrowser)
-	}
-	if cfg.YTDLPUpdateInterval != 0 {
-		t.Fatalf("unexpected Linux yt-dlp update interval: %s", cfg.YTDLPUpdateInterval)
 	}
 }
 
@@ -66,40 +59,5 @@ func TestLoadConfigFileAndEnvironmentOverride(t *testing.T) {
 	}
 	if cfg.Concurrency != 4 {
 		t.Fatalf("Concurrency = %d", cfg.Concurrency)
-	}
-}
-
-func TestLoadYTDLPUpdateInterval(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "mytube.env")
-	if err := os.WriteFile(path, []byte(
-		"MYTUBE_TOKEN=test-token\n"+
-			"MYTUBE_YTDLP_UPDATE_INTERVAL=12h\n",
-	), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.YTDLPUpdateInterval != 12*time.Hour {
-		t.Fatalf("YTDLPUpdateInterval = %s", cfg.YTDLPUpdateInterval)
-	}
-
-	t.Setenv("MYTUBE_YTDLP_UPDATE_INTERVAL", "0")
-	cfg, err = Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.YTDLPUpdateInterval != 0 {
-		t.Fatalf("disabled YTDLPUpdateInterval = %s", cfg.YTDLPUpdateInterval)
-	}
-}
-
-func TestRejectInvalidYTDLPUpdateInterval(t *testing.T) {
-	t.Setenv("MYTUBE_YTDLP_UPDATE_INTERVAL", "weekly")
-	if _, err := Load(""); err == nil {
-		t.Fatal("expected invalid update interval error")
 	}
 }

@@ -8,24 +8,22 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Config contains all runtime configuration for the MyTube service.
 type Config struct {
-	Bind                string
-	Token               string
-	StateDir            string
-	DBPath              string
-	DownloadDir         string
-	Concurrency         int
-	CORSOrigins         []string
-	PublicBase          string
-	CookieBrowser       string
-	CookieFile          string
-	JSRuntime           string
-	YTDLPPath           string
-	YTDLPUpdateInterval time.Duration
+	Bind          string
+	Token         string
+	StateDir      string
+	DBPath        string
+	DownloadDir   string
+	Concurrency   int
+	CORSOrigins   []string
+	PublicBase    string
+	CookieBrowser string
+	CookieFile    string
+	JSRuntime     string
+	YTDLPPath     string
 }
 
 // Load reads an optional KEY=VALUE configuration file and overlays process
@@ -62,19 +60,6 @@ func Load(configPath string) (Config, error) {
 		concurrency = n
 	}
 
-	ytdlpUpdateInterval := defaults.YTDLPUpdateInterval
-	if value := strings.TrimSpace(get("MYTUBE_YTDLP_UPDATE_INTERVAL")); value != "" {
-		if value == "0" {
-			ytdlpUpdateInterval = 0
-		} else {
-			interval, err := time.ParseDuration(value)
-			if err != nil || interval <= 0 {
-				return Config{}, fmt.Errorf("MYTUBE_YTDLP_UPDATE_INTERVAL must be 0 or a positive duration")
-			}
-			ytdlpUpdateInterval = interval
-		}
-	}
-
 	stateDir := valueOr(get("MYTUBE_STATE_DIR"), defaults.StateDir)
 	dbPath := get("MYTUBE_DB_PATH")
 	if dbPath == "" {
@@ -91,19 +76,18 @@ func Load(configPath string) (Config, error) {
 	}
 
 	return Config{
-		Bind:                valueOr(get("MYTUBE_BIND"), defaults.Bind),
-		Token:               get("MYTUBE_TOKEN"),
-		StateDir:            stateDir,
-		DBPath:              dbPath,
-		DownloadDir:         downloadDir,
-		Concurrency:         concurrency,
-		CORSOrigins:         strings.Split(valueOr(get("MYTUBE_CORS_ORIGIN"), defaults.CORSOrigins[0]), ","),
-		PublicBase:          get("MYTUBE_PUBLIC_BASE_URL"),
-		CookieBrowser:       cookieBrowser,
-		CookieFile:          cookieFile,
-		JSRuntime:           get("MYTUBE_JS_RUNTIME"),
-		YTDLPPath:           get("MYTUBE_YTDLP_PATH"),
-		YTDLPUpdateInterval: ytdlpUpdateInterval,
+		Bind:          valueOr(get("MYTUBE_BIND"), defaults.Bind),
+		Token:         get("MYTUBE_TOKEN"),
+		StateDir:      stateDir,
+		DBPath:        dbPath,
+		DownloadDir:   downloadDir,
+		Concurrency:   concurrency,
+		CORSOrigins:   strings.Split(valueOr(get("MYTUBE_CORS_ORIGIN"), defaults.CORSOrigins[0]), ","),
+		PublicBase:    get("MYTUBE_PUBLIC_BASE_URL"),
+		CookieBrowser: cookieBrowser,
+		CookieFile:    cookieFile,
+		JSRuntime:     get("MYTUBE_JS_RUNTIME"),
+		YTDLPPath:     get("MYTUBE_YTDLP_PATH"),
 	}, nil
 }
 
@@ -113,14 +97,13 @@ func Defaults(goos, home string) Config {
 	if goos == "darwin" {
 		stateDir := filepath.Join(home, "Library", "Application Support", "MyTube")
 		return Config{
-			Bind:                "127.0.0.1:8081",
-			StateDir:            stateDir,
-			DBPath:              filepath.Join(stateDir, "mytube.db"),
-			DownloadDir:         filepath.Join(stateDir, "downloads"),
-			Concurrency:         2,
-			CORSOrigins:         []string{"https://mytube.elladali.com"},
-			CookieBrowser:       "chrome",
-			YTDLPUpdateInterval: 7 * 24 * time.Hour,
+			Bind:          "127.0.0.1:8081",
+			StateDir:      stateDir,
+			DBPath:        filepath.Join(stateDir, "mytube.db"),
+			DownloadDir:   filepath.Join(stateDir, "downloads"),
+			Concurrency:   2,
+			CORSOrigins:   []string{"https://mytube.elladali.com"},
+			CookieBrowser: "chrome",
 		}
 	}
 

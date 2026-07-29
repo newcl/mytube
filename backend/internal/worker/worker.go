@@ -40,21 +40,6 @@ type Worker struct {
 	jsRuntime     string // if set, pass --js-runtimes <runtime> to yt-dlp
 	sem           chan struct{}
 	backfillMu    sync.Mutex
-	ytdlpMu       sync.RWMutex
-}
-
-// SetYTDLPPath changes the executable used by jobs started after this call.
-// A download already in progress keeps using the process it started with.
-func (w *Worker) SetYTDLPPath(path string) {
-	w.ytdlpMu.Lock()
-	w.ytdlpPath = path
-	w.ytdlpMu.Unlock()
-}
-
-func (w *Worker) currentYTDLPPath() string {
-	w.ytdlpMu.RLock()
-	defer w.ytdlpMu.RUnlock()
-	return w.ytdlpPath
 }
 
 // New creates a new Worker.
@@ -140,37 +125,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 	outputTemplate := w.downloadDir + "/%(title).200B-%(id)s.%(ext)s"
 
-	args := []string{
-		"--newline",
-		"--no-colors",
-		"--progress",    // force progress output even when stdout is a pipe (non-TTY)
-		"--no-part",     // write directly to final filename so file is readable mid-download
-		"--no-continue", // don't try to resume partial files (avoids HTTP 416 errors)
-		// Prefer YouTube's combined 360p HLS MP4. Progressive format URLs can
-		// require a per-video PO token even with authenticated cookies.
-		"--extractor-args", "youtube:player_client=web_safari",
-		"--format", "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
-		"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
-		"--write-info-json",
-		"--no-playlist",
-		"--output", outputTemplate,
-		"--print", "before_dl:filename", // emitted once before download starts (filename = pre-move path)
-		"--print", "after_move:filepath", // emitted once after completion (filepath = final path)
-	}
-
-	// Cookie source: live browser (Mac, residential IP) or cookie file (VPS).
-	if w.cookieBrowser != "" {
-		args = append(args, "--cookies-from-browser", w.cookieBrowser)
-	} else if w.cookieFile != "" {
-		args = append(args, "--cookies", w.cookieFile)
-	}
-	if w.jsRuntime != "" {
-		args = append(args, "--js-runtimes", w.jsRuntime)
-	}
-
-	args = append(args, job.URL)
-
-	cmd := exec.CommandContext(ctx, w.currentYTDLPPath(), args...)
+	cmd := exec.CommandContext(ctx, w.ytdlpPath, w.downloadArgs(outputTemplate, job.URL)...)
 
 	var logBuf bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -283,6 +238,51 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	} else {
 		log.Printf("worker: job %d completed: %s", job.ID, outFile)
 	}
+}
+
+func (w *Worker) downloadArgs(outputTemplate, url string) []string {
+	args := []string{
+		"--newline",
+		"--no-colors",
+		"--progress",    // force progress output even when stdout is a pipe (non-TTY)
+		"--no-part",     // write directly to final filename so file is readable mid-download
+		"--no-continue", // don't try to resume partial files (avoids HTTP 416 errors)
+		"--write-info-json",
+		"--no-playlist",
+		"--output", outputTemplate,
+		"--print", "before_dl:filename", // emitted once before download starts (filename = pre-move path)
+		"--print", "after_move:filepath", // emitted once after completion (filepath = final path)
+	}
+
+	if w.cookieBrowser != "" {
+		// The Mac's residential connection and live browser session can access
+		// YouTube's fast combined MP4. Validate it before selection so an
+		// unavailable direct URL falls through to HLS.
+		args = append(args,
+			"--check-formats",
+			"--format", "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
+			"--cookies-from-browser", w.cookieBrowser,
+		)
+	} else if w.cookieFile != "" {
+		// Server deployments retain the web_safari HLS route that avoids the
+		// proof-of-origin 403 observed from the VM.
+		args = append(args,
+			"--extractor-args", "youtube:player_client=web_safari",
+			"--format", "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
+			"--cookies", w.cookieFile,
+		)
+	} else {
+		args = append(args,
+			"--format", "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
+		)
+	}
+	if w.jsRuntime != "" {
+		args = append(args, "--js-runtimes", w.jsRuntime)
+	}
+	return append(args, url)
 }
 
 // ---- progress parsing -------------------------------------------------------
@@ -480,7 +480,7 @@ func (w *Worker) tryDownloadSubsForJob(ctx context.Context, job dbpkg.SubtitleBa
 	dlCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(dlCtx, w.currentYTDLPPath(), args...)
+	cmd := exec.CommandContext(dlCtx, w.ytdlpPath, args...)
 	output, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(output))
 	if err != nil {

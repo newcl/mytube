@@ -10,8 +10,6 @@
 #   bash scripts/install-native-macos.sh stop
 #   bash scripts/install-native-macos.sh restart
 #   bash scripts/install-native-macos.sh yt-dlp-status
-#   bash scripts/install-native-macos.sh update-yt-dlp
-#   bash scripts/install-native-macos.sh rollback-yt-dlp
 #   bash scripts/install-native-macos.sh uninstall
 
 set -euo pipefail
@@ -31,6 +29,7 @@ LEGACY_CONFIG_FILE="$APP_DIR/.env"
 DOWNLOAD_DIR="$APP_DIR/downloads"
 LOG_DIR="$HOME/Library/Logs/MyTube"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+YTDLP_PATH="/opt/homebrew/bin/yt-dlp"
 
 status() {
   launchctl print "${DOMAIN}/${LABEL}"
@@ -90,20 +89,6 @@ case "$ACTION" in
     "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
     exit 0
     ;;
-  update-yt-dlp)
-    "$INSTALL_BINARY" yt-dlp update --config "$CONFIG_FILE"
-    restart_service
-    wait_for_health
-    "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
-    exit 0
-    ;;
-  rollback-yt-dlp)
-    "$INSTALL_BINARY" yt-dlp rollback --config "$CONFIG_FILE"
-    restart_service
-    wait_for_health
-    "$INSTALL_BINARY" yt-dlp status --config "$CONFIG_FILE"
-    exit 0
-    ;;
   uninstall)
     stop_if_loaded
     rm -f "$PLIST"
@@ -114,7 +99,7 @@ case "$ACTION" in
   install)
     ;;
   *)
-    echo "usage: $0 [install [binary]|status|start|stop|restart|yt-dlp-status|update-yt-dlp|rollback-yt-dlp|uninstall]" >&2
+    echo "usage: $0 [install [binary]|status|start|stop|restart|yt-dlp-status|uninstall]" >&2
     exit 2
     ;;
 esac
@@ -126,6 +111,11 @@ fi
 if [[ ! -x "$SOURCE_BINARY" ]]; then
   echo "ERROR: executable not found: $SOURCE_BINARY" >&2
   echo "Build it with: bash scripts/build-native-macos.sh" >&2
+  exit 1
+fi
+if [[ ! -x "$YTDLP_PATH" ]]; then
+  echo "ERROR: Homebrew yt-dlp not found at: $YTDLP_PATH" >&2
+  echo "Install it with: brew install yt-dlp" >&2
   exit 1
 fi
 
@@ -144,6 +134,7 @@ if [[ ! -f "$CONFIG_FILE" && -f "$LEGACY_CONFIG_FILE" ]]; then
   if ! grep -q '^MYTUBE_JS_RUNTIME=' "$CONFIG_FILE"; then
     echo "MYTUBE_JS_RUNTIME=deno" >> "$CONFIG_FILE"
   fi
+  echo "MYTUBE_YTDLP_PATH=$YTDLP_PATH" >> "$CONFIG_FILE"
   echo "Migrated legacy configuration and preserved its token/data paths."
 elif [[ ! -f "$CONFIG_FILE" ]]; then
   TOKEN="$(openssl rand -hex 32)"
@@ -156,13 +147,21 @@ elif [[ ! -f "$CONFIG_FILE" ]]; then
     echo "MYTUBE_CONCURRENCY=2"
     echo "MYTUBE_COOKIE_BROWSER=chrome"
     echo "MYTUBE_JS_RUNTIME=deno"
-    echo "MYTUBE_YTDLP_UPDATE_INTERVAL=168h"
+    echo "MYTUBE_YTDLP_PATH=$YTDLP_PATH"
   } > "$CONFIG_FILE"
   chmod 0600 "$CONFIG_FILE"
   echo "Created protected configuration: $CONFIG_FILE"
 else
   chmod 0600 "$CONFIG_FILE"
   echo "Preserved existing configuration: $CONFIG_FILE"
+fi
+
+# Native installs intentionally use Homebrew's fast Python-based yt-dlp.
+sed -i '' '/^MYTUBE_YTDLP_UPDATE_INTERVAL=/d' "$CONFIG_FILE"
+if grep -q '^MYTUBE_YTDLP_PATH=' "$CONFIG_FILE"; then
+  sed -i '' "s|^MYTUBE_YTDLP_PATH=.*|MYTUBE_YTDLP_PATH=$YTDLP_PATH|" "$CONFIG_FILE"
+else
+  echo "MYTUBE_YTDLP_PATH=$YTDLP_PATH" >> "$CONFIG_FILE"
 fi
 
 "$INSTALL_BINARY" doctor --config "$CONFIG_FILE"

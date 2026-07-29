@@ -22,7 +22,7 @@ Chrome extension                 Cloudflare Pages frontend
         | native MyTube Go service            |
         |                                     |
         | HTTP API       download worker      |
-        | /api/*         packaged yt-dlp      |
+        | /api/*         Homebrew yt-dlp      |
         | /files/*       Chrome + Keychain    |
         |                                     |
         | SQLite         local media storage  |
@@ -39,13 +39,12 @@ The Go executable includes:
 - the chi HTTP API;
 - the download worker and progress parser;
 - the pure-Go SQLite engine;
-- embedded SQL migrations;
-- a pinned, checksum-verified `yt-dlp_macos` payload.
+- embedded SQL migrations.
 
-The package extracts yt-dlp atomically into a versioned directory under
-`~/Library/Application Support/MyTube/tools/`. An explicit
-`MYTUBE_YTDLP_PATH` or managed `tools/yt-dlp/current/yt-dlp` can override the
-packaged payload.
+yt-dlp is an external dependency. Native installs select
+`/opt/homebrew/bin/yt-dlp` through `MYTUBE_YTDLP_PATH`; other deployments may
+discover it through `PATH`. Keeping yt-dlp outside the Go binary avoids the
+standalone macOS executable's startup delay and reduces package size.
 
 SQLite data and downloads remain external writable files:
 
@@ -53,7 +52,6 @@ SQLite data and downloads remain external writable files:
 ~/Library/Application Support/MyTube/
   mytube.db
   downloads/
-  tools/
 ```
 
 ## Authentication
@@ -73,11 +71,13 @@ See [adr/0001-auth-bearer-token.md](adr/0001-auth-bearer-token.md).
 1. A client posts `{url}` to `/api/jobs`.
 2. The worker claims a queued job within the single process.
 3. yt-dlp reads cookies directly from the configured browser profile.
-4. HLS downloads fetch up to four media fragments concurrently.
-5. The worker parses progress and throttles SQLite writes.
-6. yt-dlp writes media and metadata to local storage.
-7. The job becomes `completed` or `failed`.
-8. The API serves completed or in-progress media with byte-range support.
+4. With live browser authentication, yt-dlp validates and prefers the combined
+   direct MP4; inaccessible direct URLs fall through to HLS.
+5. HLS downloads fetch up to four media fragments concurrently.
+6. The worker parses progress and throttles SQLite writes.
+7. yt-dlp writes media and metadata to local storage.
+8. The job becomes `completed` or `failed`.
+9. The API serves completed or in-progress media with byte-range support.
 
 Jobs left in `downloading` after an unclean service exit are returned to
 `queued` during the next startup.
@@ -106,20 +106,11 @@ The same executable provides:
 - `mytube serve --config <path>`
 - `mytube doctor --config <path>`
 - `mytube yt-dlp status --config <path>`
-- `mytube yt-dlp update --config <path>`
-- `mytube yt-dlp rollback --config <path>`
 - `mytube version`
 
 `doctor` verifies the loopback bind, state paths, SQLite, selected yt-dlp,
 browser-cookie configuration, ffmpeg/ffprobe, and JavaScript runtime without
 printing secrets.
 
-The yt-dlp updater maintains `current` and `previous` executable slots under
-the Application Support tool directory. It uses yt-dlp's own release updater,
-validates the updated executable, restores automatically on failure, and keeps
-the embedded version unchanged as a final fallback.
-
-On macOS, `serve` runs this updater internally five minutes after startup and
-then every `MYTUBE_YTDLP_UPDATE_INTERVAL` (default `168h`). Atomic replacement
-leaves active downloads untouched; new jobs use the updated executable. Set
-the interval to `0` to disable automatic checks.
+On macOS, Homebrew owns yt-dlp updates. Run `brew upgrade yt-dlp`, then restart
+MyTube so `doctor` and the startup log confirm the selected version.

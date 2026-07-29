@@ -6,7 +6,7 @@ Personal YouTube downloader + library UI + Chrome extension.
 
 | Component | Tech | Where |
 |-----------|------|-------|
-| Backend API + worker | Native Go + SQLite + packaged yt-dlp | Mac Mini |
+| Backend API + worker | Native Go + SQLite + Homebrew yt-dlp | Mac Mini |
 | Frontend | React + Vite | Cloudflare Pages |
 | Chrome extension | MV3 | Local install |
 
@@ -36,7 +36,7 @@ cp .env.example .env   # set MYTUBE_TOKEN at minimum
 go run ./cmd/server
 ```
 
-Build the self-contained Apple Silicon package:
+Build the Apple Silicon executable:
 
 ```bash
 bash scripts/build-native-macos.sh

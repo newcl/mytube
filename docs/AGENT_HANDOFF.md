@@ -10,14 +10,11 @@ Implemented and verified:
 
 - platform-aware macOS configuration under
   `~/Library/Application Support/MyTube/`;
-- a pinned, checksum-verified embedded `yt-dlp_macos`;
-- explicit and managed yt-dlp override paths;
+- external Homebrew yt-dlp selected through `MYTUBE_YTDLP_PATH`;
 - `serve`, `doctor`, and `version` commands;
-- lightweight `yt-dlp status`, `update`, and `rollback` commands with managed
-  current/previous slots and the embedded copy as fallback;
-- a built-in macOS yt-dlp checker that runs five minutes after startup and
-  weekly thereafter, activating updates for new jobs without another
-  LaunchAgent or service restart;
+- a lightweight `yt-dlp status` command;
+- direct combined MP4 preference with reachability validation and four-way HLS
+  fallback for the Mac's live browser session;
 - startup recovery for interrupted downloads;
 - native build and user LaunchAgent management scripts;
 - passing backend tests and Linux ARM64 compatibility build;
