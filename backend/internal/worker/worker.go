@@ -23,10 +23,13 @@ import (
 const (
 	logCapBytes          = 32 * 1024 // 32 KB cap for log tail
 	progressThrottle     = 500 * time.Millisecond
-	pollInterval         = 2 * time.Second
+	pollInterval         = 250 * time.Millisecond
 	subBackfillInterval  = 1 * time.Minute
 	subBackfillBatchSize = 20
 	hlsConcurrentFrags   = 4
+
+	directFirstFormat = "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
+	hlsFirstFormat    = "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
 )
 
 // Worker polls for queued jobs and runs them concurrently up to concurrency.
@@ -124,14 +127,63 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	log.Printf("worker: starting job %d url=%s", job.ID, job.URL)
 
 	outputTemplate := w.downloadDir + "/%(title).200B-%(id)s.%(ext)s"
+	result := w.runDownloadAttempt(ctx, job, outputTemplate, false)
+	combinedLog := result.log
 
-	cmd := exec.CommandContext(ctx, w.ytdlpPath, w.downloadArgs(outputTemplate, job.URL)...)
+	if w.shouldRetryWithHLS(ctx, result) {
+		log.Printf("worker: job %d direct MP4 failed; retrying with HLS: %v", job.ID, result.err)
+		fallback := w.runDownloadAttempt(ctx, job, outputTemplate, true)
+		combinedLog += "\n--- direct MP4 failed; HLS fallback ---\n" + fallback.log
+		result = fallback
+	}
+
+	logTail := capLog(combinedLog)
+	if result.err != nil {
+		_ = dbpkg.SetJobFailed(w.db, job.ID, result.err.Error(), logTail)
+		log.Printf("worker: job %d failed: %v", job.ID, result.err)
+		return
+	}
+
+	meta := readInfoJSON(result.outputFile)
+
+	err := dbpkg.SetJobCompleted(w.db, job.ID, dbpkg.CompletedFields{
+		OutputPath:   result.outputFile,
+		Title:        meta.Title,
+		Uploader:     meta.Uploader,
+		ThumbnailURL: meta.Thumbnail,
+		DurationSecs: meta.Duration,
+		Extractor:    meta.Extractor,
+		WebpageURL:   meta.WebpageURL,
+		LogTail:      logTail,
+	})
+	if err != nil {
+		log.Printf("worker: set completed job %d: %v", job.ID, err)
+	} else {
+		log.Printf("worker: job %d completed: %s", job.ID, result.outputFile)
+	}
+}
+
+func (w *Worker) shouldRetryWithHLS(ctx context.Context, result downloadAttemptResult) bool {
+	return result.err != nil &&
+		w.cookieBrowser != "" &&
+		ctx.Err() == nil &&
+		(result.formatID == "18" || result.formatID == "")
+}
+
+type downloadAttemptResult struct {
+	err        error
+	outputFile string
+	formatID   string
+	log        string
+}
+
+func (w *Worker) runDownloadAttempt(ctx context.Context, job *dbpkg.Job, outputTemplate string, hlsFallback bool) downloadAttemptResult {
+	cmd := exec.CommandContext(ctx, w.ytdlpPath, w.downloadArgs(outputTemplate, job.URL, hlsFallback)...)
 
 	var logBuf bytes.Buffer
 	pr, pw, err := os.Pipe()
 	if err != nil {
-		_ = dbpkg.SetJobFailed(w.db, job.ID, fmt.Sprintf("pipe: %v", err), "")
-		return
+		return downloadAttemptResult{err: fmt.Errorf("pipe: %w", err)}
 	}
 
 	cmd.Stdout = pw
@@ -140,8 +192,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	if err := cmd.Start(); err != nil {
 		pw.Close()
 		pr.Close()
-		_ = dbpkg.SetJobFailed(w.db, job.ID, fmt.Sprintf("start yt-dlp: %v", err), "")
-		return
+		return downloadAttemptResult{err: fmt.Errorf("start yt-dlp: %w", err)}
 	}
 	pw.Close() // parent closes write end
 
@@ -149,6 +200,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		mu           sync.Mutex
 		lastProgress time.Time
 		outputFile   string
+		formatID     string
 		pathWritten  bool // true once before_dl path stored in DB
 		metaWritten  bool // true once metadata from info.json stored in DB
 	)
@@ -164,6 +216,12 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 			// Both --print before_dl:filepath and after_move:filepath emit an absolute path.
 			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "mytube-format=") {
+				mu.Lock()
+				formatID = strings.TrimPrefix(trimmed, "mytube-format=")
+				mu.Unlock()
+				continue
+			}
 			if strings.HasPrefix(trimmed, w.downloadDir) {
 				mu.Lock()
 				outputFile = trimmed
@@ -211,36 +269,18 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 	mu.Lock()
 	outFile := outputFile
+	selectedFormat := formatID
 	mu.Unlock()
 
-	logTail := capLog(logBuf.String())
-
-	if waitErr != nil {
-		_ = dbpkg.SetJobFailed(w.db, job.ID, waitErr.Error(), logTail)
-		log.Printf("worker: job %d failed: %v", job.ID, waitErr)
-		return
-	}
-
-	meta := readInfoJSON(outFile)
-
-	err = dbpkg.SetJobCompleted(w.db, job.ID, dbpkg.CompletedFields{
-		OutputPath:   outFile,
-		Title:        meta.Title,
-		Uploader:     meta.Uploader,
-		ThumbnailURL: meta.Thumbnail,
-		DurationSecs: meta.Duration,
-		Extractor:    meta.Extractor,
-		WebpageURL:   meta.WebpageURL,
-		LogTail:      logTail,
-	})
-	if err != nil {
-		log.Printf("worker: set completed job %d: %v", job.ID, err)
-	} else {
-		log.Printf("worker: job %d completed: %s", job.ID, outFile)
+	return downloadAttemptResult{
+		err:        waitErr,
+		outputFile: outFile,
+		formatID:   selectedFormat,
+		log:        logBuf.String(),
 	}
 }
 
-func (w *Worker) downloadArgs(outputTemplate, url string) []string {
+func (w *Worker) downloadArgs(outputTemplate, url string, hlsFallback bool) []string {
 	args := []string{
 		"--newline",
 		"--no-colors",
@@ -250,17 +290,26 @@ func (w *Worker) downloadArgs(outputTemplate, url string) []string {
 		"--write-info-json",
 		"--no-playlist",
 		"--output", outputTemplate,
+		"--print", "before_dl:mytube-format=%(format_id)s",
 		"--print", "before_dl:filename", // emitted once before download starts (filename = pre-move path)
 		"--print", "after_move:filepath", // emitted once after completion (filepath = final path)
 	}
 
 	if w.cookieBrowser != "" {
-		// The Mac's residential connection and live browser session can access
-		// YouTube's fast combined MP4. Validate it before selection so an
-		// unavailable direct URL falls through to HLS.
+		if hlsFallback {
+			// A failed direct MP4 can leave a partial final file because downloads
+			// are intentionally visible while in progress. Replace it on retry.
+			args = append(args,
+				"--force-overwrites",
+				"--extractor-args", "youtube:player_client=web_safari",
+				"--format", hlsFirstFormat,
+			)
+		} else {
+			// Start the direct MP4 immediately. If YouTube rejects it, download()
+			// retries with the reliable HLS route instead of probing up front.
+			args = append(args, "--format", directFirstFormat)
+		}
 		args = append(args,
-			"--check-formats",
-			"--format", "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
 			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
 			"--cookies-from-browser", w.cookieBrowser,
 		)
@@ -269,13 +318,13 @@ func (w *Worker) downloadArgs(outputTemplate, url string) []string {
 		// proof-of-origin 403 observed from the VM.
 		args = append(args,
 			"--extractor-args", "youtube:player_client=web_safari",
-			"--format", "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+			"--format", hlsFirstFormat,
 			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
 			"--cookies", w.cookieFile,
 		)
 	} else {
 		args = append(args,
-			"--format", "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+			"--format", directFirstFormat,
 			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
 		)
 	}
