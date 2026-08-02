@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2 } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -11,6 +11,13 @@ import {
   saveSettings,
 } from '../config';
 import { extractYouTubeUrl } from '../utils/urlExtractor';
+import {
+  enterPictureInPicture,
+  exitPictureInPicture,
+  isPictureInPictureActive,
+  supportsPictureInPicture,
+  type PictureInPictureVideo,
+} from '../utils/pictureInPicture';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -30,8 +37,7 @@ import {
 } from '../components/ui/popover';
 
 const POLL_INTERVAL = 1500; // ms
-const BACKGROUND_PLAYBACK_WARNING = 'This browser paused playback in the background. Try Picture-in-Picture or keep this tab/app in the foreground.';
-const BACKGROUND_PAUSE_CHECK_DELAY_MS = 1200;
+const BACKGROUND_PLAYBACK_WARNING = 'Chrome stopped playback while the iPhone was locked. Resume playback, then tap Background before locking the screen.';
 
 const durationCache = new Map<number, string>();
 
@@ -103,13 +109,6 @@ function isIOS() {
 function isMobilePlatform() {
   return isIOS() || /Android/i.test(navigator.userAgent);
 }
-
-type PictureInPictureVideo = HTMLVideoElement & {
-  webkitSupportsPresentationMode?: (mode: 'inline' | 'fullscreen' | 'picture-in-picture') => boolean;
-  webkitSetPresentationMode?: (mode: 'inline' | 'fullscreen' | 'picture-in-picture') => void;
-  webkitPresentationMode?: 'inline' | 'fullscreen' | 'picture-in-picture';
-};
-
 
 function looksLikeYouTubeUrl(text: string): boolean {
   return /(?:youtube\.com|youtu\.be)/i.test(text);
@@ -632,8 +631,11 @@ function JobRow({
 
 function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void; startTime?: number }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const pipActiveRef = useRef(false);
+  const previousJobStatusRef = useRef<{ id: number; status: Job['status'] } | null>(null);
   const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
+  const [pipSupported, setPipSupported] = useState(false);
+  const [pipActive, setPipActive] = useState(false);
+  const [pipError, setPipError] = useState('');
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
@@ -652,7 +654,9 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
   useEffect(() => {
     if (!job) return;
     setBgPlaybackWarning('');
-    pipActiveRef.current = false;
+    setPipError('');
+    setPipActive(false);
+    setPipSupported(false);
   }, [job]);
 
   useEffect(() => {
@@ -660,20 +664,49 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     const video = videoRef.current as PictureInPictureVideo | null;
     if (!video) return;
 
-    const onEnter = () => { pipActiveRef.current = true; };
-    const onLeave = () => { pipActiveRef.current = false; };
-    const onWebkitModeChanged = () => {
-      pipActiveRef.current = video.webkitPresentationMode === 'picture-in-picture';
+    const updatePiPState = () => {
+      const active = isPictureInPictureActive(video);
+      setPipActive(active);
+      setPipSupported(supportsPictureInPicture(video, isIOS()));
     };
-    video.addEventListener('enterpictureinpicture', onEnter);
-    video.addEventListener('leavepictureinpicture', onLeave);
-    video.addEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
+    updatePiPState();
+    video.addEventListener('loadedmetadata', updatePiPState);
+    video.addEventListener('canplay', updatePiPState);
+    video.addEventListener('enterpictureinpicture', updatePiPState);
+    video.addEventListener('leavepictureinpicture', updatePiPState);
+    video.addEventListener('webkitpresentationmodechanged', updatePiPState as EventListener);
     return () => {
-      video.removeEventListener('enterpictureinpicture', onEnter);
-      video.removeEventListener('leavepictureinpicture', onLeave);
-      video.removeEventListener('webkitpresentationmodechanged', onWebkitModeChanged as EventListener);
+      video.removeEventListener('loadedmetadata', updatePiPState);
+      video.removeEventListener('canplay', updatePiPState);
+      video.removeEventListener('enterpictureinpicture', updatePiPState);
+      video.removeEventListener('leavepictureinpicture', updatePiPState);
+      video.removeEventListener('webkitpresentationmodechanged', updatePiPState as EventListener);
     };
   }, [job]);
+
+  const handlePictureInPicture = useCallback(async () => {
+    const video = videoRef.current as PictureInPictureVideo | null;
+    if (!video) return;
+
+    setPipError('');
+    try {
+      if (isPictureInPictureActive(video)) {
+        await exitPictureInPicture(video);
+        return;
+      }
+
+      // Start both operations during the button's user activation. Awaiting
+      // play() first causes iOS Chrome to reject the subsequent PiP request.
+      const enterPromise = enterPictureInPicture(video, isIOS());
+      const playPromise = video.paused ? video.play() : Promise.resolve();
+      await enterPromise;
+      await playPromise;
+      setBgPlaybackWarning('');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '';
+      setPipError(detail || 'Could not start Picture-in-Picture. Start the video, then tap Background again.');
+    }
+  }, []);
 
   useEffect(() => {
     if (startTime === undefined || startTime <= 0) return;
@@ -697,6 +730,39 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       };
     }
   }, [job, startTime]);
+
+  useEffect(() => {
+    if (!job || !liveJob) return;
+
+    const previous = previousJobStatusRef.current;
+    previousJobStatusRef.current = { id: job.id, status: liveJob.status };
+    if (
+      !previous
+      || previous.id !== job.id
+      || previous.status !== 'downloading'
+      || liveJob.status !== 'completed'
+    ) return;
+
+    // A request opened while the file is growing has the old Content-Length.
+    // Reload after completion so iOS background playback sees the final file,
+    // while preserving the viewer's current position and play state.
+    const video = videoRef.current;
+    if (!video) return;
+    const resumeAt = video.currentTime;
+    const shouldResume = !video.paused && !video.ended;
+    const restorePlayback = () => {
+      if (Number.isFinite(resumeAt) && resumeAt > 0) {
+        video.currentTime = Math.min(resumeAt, Number.isFinite(video.duration) ? video.duration : resumeAt);
+      }
+      if (shouldResume) {
+        video.play().catch(() => setBgPlaybackWarning('Download finished. Tap play once, then use Background.'));
+      }
+    };
+
+    video.addEventListener('loadedmetadata', restorePlayback, { once: true });
+    video.load();
+    return () => video.removeEventListener('loadedmetadata', restorePlayback);
+  }, [job, liveJob]);
 
   useEffect(() => {
     if (!job || !liveJob) return;
@@ -741,82 +807,24 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     if (!job) return;
     const video = videoRef.current;
     if (!video) return;
-    let pauseCheckTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const requestAutoPiP = async () => {
-      if (video.paused || video.ended) return;
-      const pipVideo = video as PictureInPictureVideo;
-      if (
-        document.pictureInPictureElement === video ||
-        pipVideo.webkitPresentationMode === 'picture-in-picture'
-      ) return;
-
-      try {
-        if (
-          document.pictureInPictureEnabled &&
-          typeof video.requestPictureInPicture === 'function'
-        ) {
-          await video.requestPictureInPicture();
-          return;
-        }
-
-        if (
-          pipVideo.webkitSupportsPresentationMode?.('picture-in-picture')
-        ) {
-          pipVideo.webkitSetPresentationMode?.('picture-in-picture');
-        }
-      } catch {
-        // Some mobile browsers require fresh user activation before PiP requests.
-      }
-    };
+    let wasPlayingWhenHidden = false;
 
     const onVisibilityChange = () => {
-      const isInPiP = pipActiveRef.current
-        || document.pictureInPictureElement === video
-        || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
       if (document.visibilityState === 'hidden') {
-        void requestAutoPiP();
-        if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
-        pauseCheckTimer = setTimeout(() => {
-          if (document.visibilityState === 'hidden' && video.paused && !video.ended) {
-            video.play().catch(() => {});
-          }
-        }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
+        wasPlayingWhenHidden = !video.paused && !video.ended;
+        return;
       }
-      if (document.visibilityState !== 'hidden' || video.ended || isInPiP) return;
-      if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
-      pauseCheckTimer = setTimeout(() => {
-        const stillInPiP = pipActiveRef.current
-          || document.pictureInPictureElement === video
-          || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
-        if (document.visibilityState === 'hidden' && video.paused && !video.ended && !stillInPiP) {
-          setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
-        }
-      }, BACKGROUND_PAUSE_CHECK_DELAY_MS);
-    };
-    const onPause = () => {
-      if (document.visibilityState === 'hidden' && !video.ended) {
-        const isInPiP = pipActiveRef.current
-          || document.pictureInPictureElement === video
-          || (video as PictureInPictureVideo).webkitPresentationMode === 'picture-in-picture';
-        if (isInPiP) {
-          video.play().catch(() => {});
-          return;
-        }
+
+      if (wasPlayingWhenHidden && video.paused && !video.ended) {
         setBgPlaybackWarning(BACKGROUND_PLAYBACK_WARNING);
       }
     };
     const onPlay = () => setBgPlaybackWarning('');
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('pagehide', requestAutoPiP);
-    video.addEventListener('pause', onPause);
     video.addEventListener('play', onPlay);
     return () => {
-      if (pauseCheckTimer) clearTimeout(pauseCheckTimer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('pagehide', requestAutoPiP);
-      video.removeEventListener('pause', onPause);
       video.removeEventListener('play', onPlay);
     };
   }, [job]);
@@ -834,6 +842,23 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       >
         <div className="player-modal-header flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
           <span className="text-white text-sm font-medium truncate flex-1">{job.title || 'Video'}</span>
+          {pipSupported && (
+            <button
+              type="button"
+              onClick={handlePictureInPicture}
+              disabled={isDownloading}
+              className={`flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+                pipActive ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'
+              } disabled:cursor-not-allowed disabled:opacity-40`}
+              aria-pressed={pipActive}
+              title={isDownloading
+                ? 'Background playback is available when this download finishes'
+                : 'Use Picture-in-Picture for reliable playback when switching apps or locking your iPhone'}
+            >
+              <PictureInPicture2 className="h-4 w-4" />
+              <span>Background</span>
+            </button>
+          )}
           <button
             onClick={onClose}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl leading-none text-white/70 hover:bg-white/10 hover:text-white"
@@ -848,15 +873,16 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             controls
             autoPlay
             playsInline
+            preload="auto"
             className="w-full h-full object-contain"
             src={fileUrl(job.id)}
             key={job.id}
             onEnded={onEnded}
           />
-          {bgPlaybackWarning && (
+          {(pipError || bgPlaybackWarning) && (
             <div className="absolute bottom-10 left-3 right-3 z-10">
               <p className="text-xs text-amber-300 bg-black/70 px-3 py-1.5 rounded">
-                {bgPlaybackWarning}
+                {pipError || bgPlaybackWarning}
               </p>
             </div>
           )}
@@ -868,7 +894,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
               <span>{liveJob.progress?.speed ?? ''}{liveJob.progress?.eta ? ` · ETA ${liveJob.progress.eta}` : ''}</span>
             </div>
             <Progress value={pct} className="h-1" />
-            <p className="text-xs text-white/40 mt-1">You can only seek within the downloaded portion above.</p>
+            <p className="text-xs text-white/40 mt-1">You can only seek within the downloaded portion above. Background playback becomes available when the download finishes.</p>
           </div>
         )}
       </div>
