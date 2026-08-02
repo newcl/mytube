@@ -20,9 +20,9 @@ function documentStub(overrides: Partial<Document> = {}): Document {
 }
 
 describe('picture-in-picture helpers', () => {
-  it('prefers the synchronous WebKit presentation API on iOS', async () => {
+  it('prefers the standards API when iOS exposes both APIs', async () => {
     const setMode = vi.fn();
-    const requestStandard = vi.fn();
+    const requestStandard = vi.fn().mockResolvedValue(undefined);
     const video = videoStub({
       webkitSupportsPresentationMode: () => true,
       webkitSetPresentationMode: setMode,
@@ -30,10 +30,10 @@ describe('picture-in-picture helpers', () => {
     });
     const doc = documentStub({ pictureInPictureEnabled: true });
 
-    await enterPictureInPicture(video, true, doc);
+    await enterPictureInPicture(video, doc);
 
-    expect(setMode).toHaveBeenCalledWith('picture-in-picture');
-    expect(requestStandard).not.toHaveBeenCalled();
+    expect(requestStandard).toHaveBeenCalledOnce();
+    expect(setMode).not.toHaveBeenCalled();
   });
 
   it('uses the standard API outside iOS', async () => {
@@ -41,10 +41,26 @@ describe('picture-in-picture helpers', () => {
     const video = videoStub({ requestPictureInPicture: requestStandard });
     const doc = documentStub({ pictureInPictureEnabled: true });
 
-    expect(supportsPictureInPicture(video, false, doc)).toBe(true);
-    await enterPictureInPicture(video, false, doc);
+    expect(supportsPictureInPicture(video, doc)).toBe(true);
+    await enterPictureInPicture(video, doc);
 
     expect(requestStandard).toHaveBeenCalledOnce();
+  });
+
+  it('waits for the WebKit presentation mode fallback', async () => {
+    const video = videoStub({
+      webkitSupportsPresentationMode: () => true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    video.webkitSetPresentationMode = vi.fn((mode) => {
+      video.webkitPresentationMode = mode;
+    });
+
+    await enterPictureInPicture(video, documentStub());
+
+    expect(video.webkitSetPresentationMode).toHaveBeenCalledWith('picture-in-picture');
+    expect(video.webkitPresentationMode).toBe('picture-in-picture');
   });
 
   it('recognizes and exits WebKit picture-in-picture', async () => {

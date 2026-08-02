@@ -12,7 +12,6 @@ export function isPictureInPictureActive(video: PictureInPictureVideo, doc: Docu
 
 export function supportsPictureInPicture(
   video: PictureInPictureVideo,
-  preferWebKit: boolean,
   doc: Document = document,
 ): boolean {
   const standardSupported = Boolean(
@@ -23,12 +22,11 @@ export function supportsPictureInPicture(
       && video.webkitSupportsPresentationMode?.('picture-in-picture'),
   );
 
-  return preferWebKit ? webKitSupported || standardSupported : standardSupported || webKitSupported;
+  return standardSupported || webKitSupported;
 }
 
 export async function enterPictureInPicture(
   video: PictureInPictureVideo,
-  preferWebKit: boolean,
   doc: Document = document,
 ): Promise<void> {
   const webKitSupported = Boolean(
@@ -36,20 +34,36 @@ export async function enterPictureInPicture(
       && video.webkitSupportsPresentationMode?.('picture-in-picture'),
   );
 
-  // iOS browsers share Apple's media stack. Invoke the WebKit presentation
-  // API synchronously, before the tap's user activation can expire.
-  if (preferWebKit && webKitSupported) {
-    video.webkitSetPresentationMode?.('picture-in-picture');
-    return;
-  }
-
+  // Prefer the standards API on modern iOS because its promise resolves only
+  // after PiP is established. The legacy WebKit setter returns immediately,
+  // which creates a race when the user locks the phone right after tapping.
   if (doc.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function') {
     await video.requestPictureInPicture();
     return;
   }
 
   if (webKitSupported) {
-    video.webkitSetPresentationMode?.('picture-in-picture');
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled || video.webkitPresentationMode !== 'picture-in-picture') return;
+        settled = true;
+        clearTimeout(timeout);
+        video.removeEventListener('webkitpresentationmodechanged', finish);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        video.removeEventListener('webkitpresentationmodechanged', finish);
+        reject(new Error('Picture-in-Picture did not finish starting.'));
+      }, 2500);
+
+      video.addEventListener('webkitpresentationmodechanged', finish);
+      // This stays synchronous with the tap even though completion is awaited.
+      video.webkitSetPresentationMode?.('picture-in-picture');
+      finish();
+    });
     return;
   }
 

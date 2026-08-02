@@ -110,6 +110,18 @@ function isMobilePlatform() {
   return isIOS() || /Android/i.test(navigator.userAgent);
 }
 
+function setMediaSessionAction(
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler | null,
+) {
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch {
+    // WebKit exposes Media Session before it supports every action. One
+    // unsupported action must not prevent play/pause lock-screen controls.
+  }
+}
+
 function looksLikeYouTubeUrl(text: string): boolean {
   return /(?:youtube\.com|youtu\.be)/i.test(text);
 }
@@ -632,11 +644,15 @@ function JobRow({
 function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void; startTime?: number }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previousJobStatusRef = useRef<{ id: number; status: Job['status'] } | null>(null);
+  const previousMediaJobIDRef = useRef<number | null>(null);
   const [bgPlaybackWarning, setBgPlaybackWarning] = useState('');
   const [pipSupported, setPipSupported] = useState(false);
   const [pipActive, setPipActive] = useState(false);
+  const [pipActivating, setPipActivating] = useState(false);
   const [pipError, setPipError] = useState('');
+  const [pipHint, setPipHint] = useState('');
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
+  const playerOpen = job !== null;
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
   useEffect(() => {
@@ -655,8 +671,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     if (!job) return;
     setBgPlaybackWarning('');
     setPipError('');
-    setPipActive(false);
-    setPipSupported(false);
+    setPipHint('');
   }, [job]);
 
   useEffect(() => {
@@ -667,7 +682,13 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     const updatePiPState = () => {
       const active = isPictureInPictureActive(video);
       setPipActive(active);
-      setPipSupported(supportsPictureInPicture(video, isIOS()));
+      setPipSupported(supportsPictureInPicture(video));
+      if (active) {
+        setPipActivating(false);
+        setPipHint(isIOS() ? 'PiP ready — swipe Home once, then lock the screen.' : '');
+      } else {
+        setPipHint('');
+      }
     };
     updatePiPState();
     video.addEventListener('loadedmetadata', updatePiPState);
@@ -689,6 +710,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     if (!video) return;
 
     setPipError('');
+    setPipHint('');
     try {
       if (isPictureInPictureActive(video)) {
         await exitPictureInPicture(video);
@@ -697,7 +719,8 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
 
       // Start both operations during the button's user activation. Awaiting
       // play() first causes iOS Chrome to reject the subsequent PiP request.
-      const enterPromise = enterPictureInPicture(video, isIOS());
+      setPipActivating(true);
+      const enterPromise = enterPictureInPicture(video);
       const playPromise = video.paused ? video.play() : Promise.resolve();
       await enterPromise;
       await playPromise;
@@ -705,6 +728,8 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     } catch (error) {
       const detail = error instanceof Error ? error.message : '';
       setPipError(detail || 'Could not start Picture-in-Picture. Start the video, then tap Background again.');
+    } finally {
+      setPipActivating(false);
     }
   }, []);
 
@@ -730,6 +755,23 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       };
     }
   }, [job, startTime]);
+
+  useEffect(() => {
+    if (!job) return;
+    const previousJobID = previousMediaJobIDRef.current;
+    previousMediaJobIDRef.current = job.id;
+    if (previousJobID === null || previousJobID === job.id) return;
+
+    // Keep one video element for the entire playlist. iOS grants background
+    // playback/PiP to that element; replacing it at a track boundary loses the
+    // active lock-screen session. Explicitly continue the new source on the
+    // already-authorized element.
+    const video = videoRef.current;
+    if (!video) return;
+    video.play().catch(() => {
+      setBgPlaybackWarning('Chrome paused at the playlist transition. Unlock once and tap play to continue.');
+    });
+  }, [job]);
 
   useEffect(() => {
     if (!job || !liveJob) return;
@@ -765,23 +807,29 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
   }, [job, liveJob]);
 
   useEffect(() => {
-    if (!job || !liveJob) return;
-    const video = videoRef.current;
-    if (!video || !('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+    if (!job) return;
+    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
 
-    const artwork = liveJob.thumbnail_url ? [{ src: liveJob.thumbnail_url }] : [];
+    const artwork = job.thumbnail_url ? [{ src: job.thumbnail_url }] : [];
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: liveJob.title || 'MyTube video',
-      artist: liveJob.uploader || 'MyTube',
+      title: job.title || 'MyTube video',
+      artist: job.uploader || 'MyTube',
       artwork,
     });
-    navigator.mediaSession.setActionHandler('play', () => { video.play().catch(() => undefined); });
-    navigator.mediaSession.setActionHandler('pause', () => video.pause());
-    navigator.mediaSession.setActionHandler('stop', () => video.pause());
-    navigator.mediaSession.setActionHandler('seekbackward', () => {
+  }, [job]);
+
+  useEffect(() => {
+    if (!playerOpen) return;
+    const video = videoRef.current;
+    if (!video || !('mediaSession' in navigator)) return;
+
+    setMediaSessionAction('play', () => { video.play().catch(() => undefined); });
+    setMediaSessionAction('pause', () => video.pause());
+    setMediaSessionAction('stop', () => video.pause());
+    setMediaSessionAction('seekbackward', () => {
       video.currentTime = Math.max(0, video.currentTime - 10);
     });
-    navigator.mediaSession.setActionHandler('seekforward', () => {
+    setMediaSessionAction('seekforward', () => {
       const nextTime = video.currentTime + 10;
       const hasFiniteDuration = Number.isFinite(video.duration) && video.duration > 0;
       video.currentTime = hasFiniteDuration ? Math.min(video.duration, nextTime) : nextTime;
@@ -795,13 +843,13 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
     return () => {
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
-      navigator.mediaSession.setActionHandler('play', null);
-      navigator.mediaSession.setActionHandler('pause', null);
-      navigator.mediaSession.setActionHandler('stop', null);
-      navigator.mediaSession.setActionHandler('seekbackward', null);
-      navigator.mediaSession.setActionHandler('seekforward', null);
+      setMediaSessionAction('play', null);
+      setMediaSessionAction('pause', null);
+      setMediaSessionAction('stop', null);
+      setMediaSessionAction('seekbackward', null);
+      setMediaSessionAction('seekforward', null);
     };
-  }, [job, liveJob]);
+  }, [playerOpen]);
 
   useEffect(() => {
     if (!job) return;
@@ -846,7 +894,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             <button
               type="button"
               onClick={handlePictureInPicture}
-              disabled={isDownloading}
+              disabled={isDownloading || pipActivating}
               className={`flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
                 pipActive ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'
               } disabled:cursor-not-allowed disabled:opacity-40`}
@@ -856,7 +904,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
                 : 'Use Picture-in-Picture for reliable playback when switching apps or locking your iPhone'}
             >
               <PictureInPicture2 className="h-4 w-4" />
-              <span>Background</span>
+              <span>{pipActivating ? 'Starting…' : pipActive ? 'PiP ready' : 'Background'}</span>
             </button>
           )}
           <button
@@ -876,13 +924,12 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             preload="auto"
             className="w-full h-full object-contain"
             src={fileUrl(job.id)}
-            key={job.id}
             onEnded={onEnded}
           />
-          {(pipError || bgPlaybackWarning) && (
+          {(pipError || bgPlaybackWarning || pipHint) && (
             <div className="absolute bottom-10 left-3 right-3 z-10">
-              <p className="text-xs text-amber-300 bg-black/70 px-3 py-1.5 rounded">
-                {pipError || bgPlaybackWarning}
+              <p className={`text-xs bg-black/70 px-3 py-1.5 rounded ${pipHint && !pipError && !bgPlaybackWarning ? 'text-sky-200' : 'text-amber-300'}`}>
+                {pipError || bgPlaybackWarning || pipHint}
               </p>
             </div>
           )}
