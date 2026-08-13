@@ -10,6 +10,11 @@
 
 ## 1. Build settings in Cloudflare Pages
 
+The `mytube` Cloudflare Pages project is connected directly to GitHub. A push
+to `main` that changes `frontend/**` automatically starts a production build
+and deploy; do not run a separate manual Pages deployment for the normal
+release path.
+
 | Setting | Value |
 |---------|-------|
 | Framework preset | Vite |
@@ -50,7 +55,10 @@ npx wrangler pages dev dist
 
 ---
 
-## 5. Manual deploy (without CI)
+## 5. Manual deploy (fallback only)
+
+Use this only when the Git-integrated Pages deployment is unavailable or an
+explicit immutable preview deployment is needed:
 
 ```bash
 cd frontend
@@ -60,10 +68,8 @@ npx wrangler pages deploy dist --project-name=mytube
 
 ---
 
-## 6. CI deploy (GitHub Actions)
+## 6. GitHub Actions validation
 
-See `.github/workflows/frontend.yml` for automated deploy on push to `main`.
-
-Requires the following secrets in GitHub repository settings:
-- `CLOUDFLARE_API_TOKEN` — a Cloudflare API token with Pages edit permission
-- `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account ID
+`.github/workflows/frontend.yml` validates frontend builds. Production
+deployment is performed independently by the Cloudflare Pages Git integration
+after pushes to `main`.
