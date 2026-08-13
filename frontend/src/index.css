@@ -108,7 +108,7 @@
     background: transparent;
   }
 
-  .player-modal-header > span {
+  .player-modal-title {
     display: none;
   }
 
@@ -123,6 +123,19 @@
     width: 100vw !important;
     height: 100dvh !important;
     aspect-ratio: auto !important;
+  }
+
+  .player-playlist-bar {
+    position: absolute;
+    z-index: 20;
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    left: max(0.75rem, env(safe-area-inset-left));
+    width: auto;
+    border: 1px solid rgb(255 255 255 / 0.12);
+    border-radius: 0.75rem;
+    background: rgb(10 10 10 / 0.82);
+    backdrop-filter: blur(12px);
   }
 
   .player-download-progress {

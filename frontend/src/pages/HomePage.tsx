@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2 } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -22,6 +22,7 @@ import {
   ACTIVE_JOB_POLL_INTERVAL_MS,
   shouldPollJobs,
 } from '../utils/jobPolling';
+import { getPlaylistPlaybackState } from '../utils/playlistPlayback';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -589,7 +590,24 @@ function JobRow({
   );
 }
 
-function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | null; jobs: Job[]; onClose: () => void; onEnded?: () => void; startTime?: number }) {
+type PlaylistPlayerContext = {
+  position: number;
+  total: number;
+  sessionMinutes: number;
+  previousTitle?: string;
+  nextTitle?: string;
+  onPrevious?: () => void;
+  onNext?: () => void;
+};
+
+function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }: {
+  job: Job | null;
+  jobs: Job[];
+  onClose: () => void;
+  onEnded?: () => void;
+  startTime?: number;
+  playlistContext?: PlaylistPlayerContext;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previousJobStatusRef = useRef<{ id: number; status: Job['status'] } | null>(null);
   const previousMediaJobIDRef = useRef<number | null>(null);
@@ -782,6 +800,8 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       const hasFiniteDuration = Number.isFinite(video.duration) && video.duration > 0;
       video.currentTime = hasFiniteDuration ? Math.min(video.duration, nextTime) : nextTime;
     });
+    setMediaSessionAction('previoustrack', playlistContext?.onPrevious ?? null);
+    setMediaSessionAction('nexttrack', playlistContext?.onNext ?? null);
     navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
 
     const onPlay = () => { navigator.mediaSession.playbackState = 'playing'; };
@@ -796,8 +816,10 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
       setMediaSessionAction('stop', null);
       setMediaSessionAction('seekbackward', null);
       setMediaSessionAction('seekforward', null);
+      setMediaSessionAction('previoustrack', null);
+      setMediaSessionAction('nexttrack', null);
     };
-  }, [playerOpen]);
+  }, [playerOpen, playlistContext]);
 
   useEffect(() => {
     if (!job) return;
@@ -837,7 +859,15 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
         aria-label={job.title || 'Video player'}
       >
         <div className="player-modal-header flex items-center gap-3 px-4 py-3 bg-neutral-900 shrink-0">
-          <span className="text-white text-sm font-medium truncate flex-1">{job.title || 'Video'}</span>
+          <div className="player-modal-title min-w-0 flex-1" aria-live="polite">
+            {playlistContext && (
+              <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-300">
+                <ListMusic className="h-3 w-3" />
+                <span>Playlist · {playlistContext.position} of {playlistContext.total}</span>
+              </div>
+            )}
+            <p className="truncate text-sm font-medium text-white">{job.title || 'Video'}</p>
+          </div>
           {pipSupported && (
             <button
               type="button"
@@ -882,6 +912,40 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             </div>
           )}
         </div>
+        {playlistContext && (
+          <div className="player-playlist-bar flex shrink-0 items-center gap-3 border-t border-white/10 bg-neutral-900 px-3 py-2.5 sm:px-4">
+            <button
+              type="button"
+              onClick={playlistContext.onPrevious}
+              disabled={!playlistContext.onPrevious}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
+              aria-label="Previous playlist video"
+              title={playlistContext.previousTitle ? `Previous: ${playlistContext.previousTitle}` : 'No previous video'}
+            >
+              <SkipBack className="h-4 w-4" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[11px] text-white/50">
+                <span>Playing from playlist</span>
+                <span aria-hidden="true">·</span>
+                <span>{playlistContext.sessionMinutes} min session</span>
+              </div>
+              <p className="truncate text-xs text-white/80">
+                {playlistContext.nextTitle ? `Up next: ${playlistContext.nextTitle}` : 'Last video in playlist'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={playlistContext.onNext}
+              disabled={!playlistContext.onNext}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-400 text-neutral-950 transition-colors hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white disabled:opacity-30"
+              aria-label="Next playlist video"
+              title={playlistContext.nextTitle ? `Next: ${playlistContext.nextTitle}` : 'No next video'}
+            >
+              <SkipForward className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {isDownloading && (
           <div className="player-download-progress px-4 py-2 bg-neutral-900 shrink-0">
             <div className="flex justify-between text-xs text-white/60 mb-1">
@@ -1120,6 +1184,11 @@ export default function HomePage() {
     return jobs.find((j) => item.jobId === j.id || j.url === item.url);
   }
 
+  function isPlaylistItemPlayable(item: PlaylistItem) {
+    const job = findPlaylistJob(item);
+    return job?.status === 'completed' && !!job.output_path;
+  }
+
   function clearPlaylistTimer() {
     if (playlistTimerRef.current) {
       clearTimeout(playlistTimerRef.current);
@@ -1134,11 +1203,8 @@ export default function HomePage() {
     playlistStartTimeRef.current = 0;
   }
 
-  async function startPlaylistPlayback(startIndex = 0) {
-    const nextIndex = playlist.slice(startIndex).findIndex((item) => {
-      const job = findPlaylistJob(item);
-      return job?.status === 'completed' && !!job.output_path;
-    });
+  function startPlaylistPlayback(startIndex = 0) {
+    const nextIndex = playlist.slice(startIndex).findIndex(isPlaylistItemPlayable);
     if (nextIndex === -1) {
       alert('No playable items found in the playlist. Add downloaded videos or wait for downloads to complete.');
       return;
@@ -1152,11 +1218,23 @@ export default function HomePage() {
     clearPlaylistTimer();
     setPlaylistIndex(itemIndex);
     setPlayingJob(job);
+    seekTimeRef.current = undefined;
 
     playlistStartTimeRef.current = Date.now();
     playlistTimerRef.current = setTimeout(() => {
       stopPlaylistPlayback();
     }, playlistTimer * 60 * 1000);
+  }
+
+  function playPlaylistItem(index: number) {
+    const item = playlist[index];
+    if (!item) return false;
+    const job = findPlaylistJob(item);
+    if (!job || job.status !== 'completed' || !job.output_path) return false;
+    setPlaylistIndex(index);
+    setPlayingJob(job);
+    seekTimeRef.current = undefined;
+    return true;
   }
 
   function advancePlaylist() {
@@ -1171,36 +1249,20 @@ export default function HomePage() {
       }
     }
 
-    const nextIndex = playlist.slice(playlistIndex + 1).findIndex((item) => {
-      const job = findPlaylistJob(item);
-      return job?.status === 'completed' && !!job.output_path;
-    });
-    if (nextIndex === -1) {
+    const playbackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
+    if (!playbackState || playbackState.nextIndex === null) {
       stopPlaylistPlayback();
       return;
     }
-    const itemIndex = playlistIndex + 1 + nextIndex;
-    const item = playlist[itemIndex];
-    const job = findPlaylistJob(item);
-    if (!job || job.status !== 'completed' || !job.output_path) {
+    if (!playPlaylistItem(playbackState.nextIndex)) {
       stopPlaylistPlayback();
-      return;
     }
-    setPlaylistIndex(itemIndex);
-    setPlayingJob(job);
+  }
 
-    if (playlistStartTimeRef.current > 0) {
-      const elapsed = Date.now() - playlistStartTimeRef.current;
-      const limit = playlistTimer * 60 * 1000;
-      const remaining = limit - elapsed;
-      if (remaining <= 0) {
-        stopPlaylistPlayback();
-        return;
-      }
-      clearPlaylistTimer();
-      playlistTimerRef.current = setTimeout(() => {
-        stopPlaylistPlayback();
-      }, remaining);
+  function previousPlaylistItem() {
+    const playbackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
+    if (playbackState?.previousIndex !== null && playbackState?.previousIndex !== undefined) {
+      playPlaylistItem(playbackState.previousIndex);
     }
   }
 
@@ -1275,10 +1337,7 @@ export default function HomePage() {
   }
 
   function hasPlayablePlaylistItems() {
-    return playlist.some((item) => {
-      const job = findPlaylistJob(item);
-      return job?.status === 'completed' && !!job.output_path;
-    });
+    return playlist.some(isPlaylistItemPlayable);
   }
 
   function exitSelectMode() {
@@ -1328,6 +1387,20 @@ export default function HomePage() {
   }
 
   const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'downloading');
+  const playlistPlaybackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
+  const playlistPlayerContext: PlaylistPlayerContext | undefined = playlistPlaybackState ? {
+    position: playlistPlaybackState.position,
+    total: playlistPlaybackState.total,
+    sessionMinutes: playlistTimer,
+    previousTitle: playlistPlaybackState.previousIndex === null
+      ? undefined
+      : playlist[playlistPlaybackState.previousIndex]?.title,
+    nextTitle: playlistPlaybackState.nextIndex === null
+      ? undefined
+      : playlist[playlistPlaybackState.nextIndex]?.title,
+    onPrevious: playlistPlaybackState.previousIndex === null ? undefined : previousPlaylistItem,
+    onNext: playlistPlaybackState.nextIndex === null ? undefined : advancePlaylist,
+  } : undefined;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -1591,7 +1664,12 @@ export default function HomePage() {
                     const job = findPlaylistJob(item);
                     const playable = !!job && job.status === 'completed' && !!job.output_path;
                     return (
-                      <div key={item.id} className="rounded-lg border p-2 flex gap-3 items-start">
+                      <div
+                        key={item.id}
+                        className={`rounded-lg border p-2 flex gap-3 items-start transition-colors ${
+                          playlistIndex === index ? 'border-sky-500/60 bg-sky-500/10' : ''
+                        }`}
+                      >
                         {job?.thumbnail_url ? (
                           <img src={job.thumbnail_url} alt="" className="w-20 h-12 object-cover rounded flex-shrink-0" />
                         ) : (
@@ -1602,8 +1680,8 @@ export default function HomePage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{item.title}</p>
                           <p className="text-xs text-muted-foreground truncate">{item.url}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {playable ? 'Ready to play' : job ? job.status : 'Not downloaded'}
+                          <p className={`text-xs ${playlistIndex === index ? 'font-medium text-sky-600 dark:text-sky-400' : 'text-muted-foreground'}`}>
+                            {playlistIndex === index ? 'Now playing' : playable ? 'Ready to play' : job ? job.status : 'Not downloaded'}
                           </p>
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             <Button size="sm" onClick={() => handlePlayPlaylistItem(index)} disabled={!playable}>▶</Button>
@@ -1623,7 +1701,14 @@ export default function HomePage() {
         </>
       )}
 
-      <PlayerModal job={playingJob} jobs={jobs} onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); seekTimeRef.current = undefined; }} onEnded={advancePlaylist} startTime={seekTimeRef.current} />
+      <PlayerModal
+        job={playingJob}
+        jobs={jobs}
+        onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); seekTimeRef.current = undefined; }}
+        onEnded={advancePlaylist}
+        startTime={seekTimeRef.current}
+        playlistContext={playlistPlayerContext}
+      />
 
       <Button
         onClick={handlePasteIntoInput}
