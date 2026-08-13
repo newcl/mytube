@@ -21,12 +21,14 @@ import (
 )
 
 const (
-	logCapBytes          = 32 * 1024 // 32 KB cap for log tail
-	progressThrottle     = 500 * time.Millisecond
-	pollInterval         = 250 * time.Millisecond
-	subBackfillInterval  = 1 * time.Minute
-	subBackfillBatchSize = 20
-	hlsConcurrentFrags   = 4
+	logCapBytes           = 32 * 1024 // 32 KB cap for log tail
+	progressThrottle      = 500 * time.Millisecond
+	pollInterval          = 250 * time.Millisecond
+	subBackfillInterval   = 1 * time.Minute
+	subBackfillBatchSize  = 20
+	metaBackfillInterval  = 1 * time.Hour
+	metaBackfillBatchSize = 1000
+	hlsConcurrentFrags    = 4
 
 	directFirstFormat = "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
 	hlsFirstFormat    = "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
@@ -72,12 +74,15 @@ func (w *Worker) Run(ctx context.Context) {
 	if err := os.MkdirAll(w.downloadDir, 0755); err != nil {
 		log.Printf("worker: create download dir: %v", err)
 	}
+	w.backfillMetadata()
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	backfillTicker := time.NewTicker(subBackfillInterval)
 	defer backfillTicker.Stop()
+	metaBackfillTicker := time.NewTicker(metaBackfillInterval)
+	defer metaBackfillTicker.Stop()
 
 	for {
 		select {
@@ -85,9 +90,35 @@ func (w *Worker) Run(ctx context.Context) {
 			return
 		case <-backfillTicker.C:
 			w.backfillSubtitles(ctx)
+		case <-metaBackfillTicker.C:
+			w.backfillMetadata()
 		case <-ticker.C:
 			w.poll(ctx)
 		}
+	}
+}
+
+func (w *Worker) backfillMetadata() {
+	jobs, err := dbpkg.GetJobsForMetadataBackfill(w.db, metaBackfillBatchSize)
+	if err != nil {
+		log.Printf("worker: metadata backfill query: %v", err)
+		return
+	}
+
+	updated := 0
+	for _, job := range jobs {
+		meta := readInfoJSON(job.OutputPath)
+		if meta.Duration <= 0 {
+			continue
+		}
+		if err := dbpkg.SetJobMetadata(w.db, job.ID, "", "", "", meta.Duration); err != nil {
+			log.Printf("worker: metadata backfill job %d: %v", job.ID, err)
+			continue
+		}
+		updated++
+	}
+	if updated > 0 {
+		log.Printf("worker: metadata backfill restored duration for %d jobs", updated)
 	}
 }
 
@@ -458,7 +489,6 @@ func (w *Worker) backfillSubtitles(ctx context.Context) {
 		log.Printf("worker: subtitle backfill query: %v", err)
 		return
 	}
-	log.Printf("worker: subtitle backfill found %d unchecked jobs", len(jobs))
 	if len(jobs) == 0 {
 		return
 	}

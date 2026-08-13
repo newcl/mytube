@@ -328,6 +328,33 @@ func MarkJobSubtitlesChecked(db *sql.DB, id int64) error {
 	return err
 }
 
+type MetadataBackfillJob struct {
+	ID         int64
+	OutputPath string
+}
+
+func GetJobsForMetadataBackfill(db *sql.DB, limit int) ([]MetadataBackfillJob, error) {
+	rows, err := db.Query(
+		`SELECT id, COALESCE(output_path,'') FROM jobs
+		 WHERE status = 'completed' AND output_path <> '' AND COALESCE(duration_seconds, 0) <= 0
+		 ORDER BY created_at ASC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []MetadataBackfillJob
+	for rows.Next() {
+		var job MetadataBackfillJob
+		if err := rows.Scan(&job.ID, &job.OutputPath); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }

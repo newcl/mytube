@@ -18,6 +18,10 @@ import {
   supportsPictureInPicture,
   type PictureInPictureVideo,
 } from '../utils/pictureInPicture';
+import {
+  ACTIVE_JOB_POLL_INTERVAL_MS,
+  shouldPollJobs,
+} from '../utils/jobPolling';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -36,10 +40,7 @@ import {
   PopoverTrigger,
 } from '../components/ui/popover';
 
-const POLL_INTERVAL = 1500; // ms
 const BACKGROUND_PLAYBACK_WARNING = 'Chrome stopped playback while the iPhone was locked. Resume playback, then tap Background before locking the screen.';
-
-const durationCache = new Map<number, string>();
 
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '';
@@ -62,30 +63,6 @@ function formatTimestamp(seconds: number): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function getVideoDuration(jobId: number): Promise<string> {
-  const cached = durationCache.get(jobId);
-  if (cached !== undefined) return Promise.resolve(cached);
-
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    let settled = false;
-
-    const done = (value: string) => {
-      if (settled) return;
-      settled = true;
-      durationCache.set(jobId, value);
-      video.removeAttribute('src');
-      video.load();
-      resolve(value);
-    };
-
-    video.preload = 'metadata';
-    video.onloadedmetadata = () => done(formatDuration(video.duration));
-    video.onerror = () => done('');
-    video.src = fileUrl(jobId);
-  });
 }
 
 function statusColor(status: Job['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -242,7 +219,7 @@ function JobRow({
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const [videoDuration, setVideoDuration] = useState('');
+  const videoDuration = formatDuration(job.duration_seconds ?? 0);
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
   const playlistFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -253,35 +230,6 @@ function JobRow({
       }
     };
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const apiDuration = formatDuration(job.duration_seconds ?? 0);
-    if (apiDuration) {
-      setVideoDuration(apiDuration);
-      return;
-    }
-
-    if (job.status !== 'completed' || !job.output_path) {
-      setVideoDuration('');
-      return;
-    }
-
-    const cached = durationCache.get(job.id);
-    if (cached !== undefined) {
-      setVideoDuration(cached);
-      return;
-    }
-
-    getVideoDuration(job.id).then((value) => {
-      if (!cancelled) setVideoDuration(value);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [job.id, job.status, job.output_path, job.duration_seconds]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -921,7 +869,7 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime }: { job: Job | nu
             controls
             autoPlay
             playsInline
-            preload="auto"
+            preload="none"
             className="w-full h-full object-contain"
             src={fileUrl(job.id)}
             onEnded={onEnded}
@@ -1010,7 +958,10 @@ export default function HomePage() {
   const playlistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playlistStartTimeRef = useRef<number>(0);
   const playlistInitializedRef = useRef(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pageVisibility, setPageVisibility] = useState<DocumentVisibilityState>(
+    () => document.visibilityState,
+  );
 
   // Bulk select
   const [selectMode, setSelectMode] = useState(false);
@@ -1058,14 +1009,39 @@ export default function HomePage() {
       // silently ignore poll errors
     }
   }, []);
+  const pollingActive = shouldPollJobs(jobs, pageVisibility);
 
   useEffect(() => {
     fetchJobs();
-    pollRef.current = setInterval(fetchJobs, POLL_INTERVAL);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
   }, [fetchJobs]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      setPageVisibility(document.visibilityState);
+      if (document.visibilityState === 'visible') fetchJobs();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    if (!pollingActive) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      await fetchJobs();
+      if (!cancelled) {
+        pollRef.current = setTimeout(poll, ACTIVE_JOB_POLL_INTERVAL_MS);
+      }
+    };
+    pollRef.current = setTimeout(poll, ACTIVE_JOB_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (pollRef.current) clearTimeout(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [fetchJobs, pollingActive]);
 
   useEffect(() => {
     setPlaylist(loadPlaylistItems());

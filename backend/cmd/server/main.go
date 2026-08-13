@@ -196,7 +196,9 @@ func serveCommand(args []string) int {
 
 func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config) http.Handler {
 	router := chi.NewRouter()
-	router.Use(middleware.Logger)
+	router.Use(middleware.RequestLogger(&redactingLogFormatter{
+		delegate: &middleware.DefaultLogFormatter{Logger: log.Default(), NoColor: true},
+	}))
 	router.Use(middleware.Recoverer)
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.CORSOrigins,
@@ -227,6 +229,26 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	return router
+}
+
+// redactingLogFormatter keeps query-string authentication available to the
+// file handler without writing the credential into persistent access logs.
+type redactingLogFormatter struct {
+	delegate middleware.LogFormatter
+}
+
+func (f *redactingLogFormatter) NewLogEntry(r *http.Request) middleware.LogEntry {
+	if r.URL.Query().Has("token") {
+		redactedRequest := r.Clone(r.Context())
+		redactedURL := *r.URL
+		query := redactedURL.Query()
+		query.Set("token", "[REDACTED]")
+		redactedURL.RawQuery = query.Encode()
+		redactedRequest.URL = &redactedURL
+		redactedRequest.RequestURI = redactedURL.RequestURI()
+		r = redactedRequest
+	}
+	return f.delegate.NewLogEntry(r)
 }
 
 func doctorCommand(args []string) int {

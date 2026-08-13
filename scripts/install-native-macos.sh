@@ -198,6 +198,8 @@ cat > "$PLIST" <<EOF
   </dict>
   <key>ProcessType</key>
   <string>Background</string>
+  <key>Umask</key>
+  <integer>63</integer>
   <key>StandardOutPath</key>
   <string>${LOG_DIR}/server.log</string>
   <key>StandardErrorPath</key>
