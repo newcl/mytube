@@ -868,6 +868,17 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
             )}
             <p className="truncate text-sm font-medium text-white">{job.title || 'Video'}</p>
           </div>
+          <a
+            href={job.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-white/10 px-2.5 text-xs font-medium text-white transition-colors hover:bg-white/20"
+            aria-label="Open original video on YouTube"
+            title="Open original URL"
+          >
+            <ExternalLink className="h-4 w-4" />
+            <span className="hidden sm:inline">Source</span>
+          </a>
           {pipSupported && (
             <button
               type="button"
