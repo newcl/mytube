@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'playback_progress.dart';
+import 'player_recovery.dart';
 import 'playlist.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -1672,6 +1673,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   int _loadGeneration = 0;
   Timer? _sessionTimer;
   Timer? _controlsTimer;
+  Timer? _recoveryTimer;
+  Timer? _bufferingRecoveryTimer;
   DateTime? _sessionDeadline;
   Duration _sessionRemaining = Duration.zero;
   bool _controlsVisible = true;
@@ -1680,6 +1683,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Duration _lastPersistedPosition = Duration.zero;
   Duration? _resumedFrom;
   bool _hasSavedProgress = false;
+  bool _recovering = false;
+  bool _usingNetworkVideo = false;
+  int _recoveryAttempt = 0;
+  Duration _recoveryPosition = Duration.zero;
+  String? _recoveryReason;
 
   // Now Playing / lock-screen controls.
   static const _nowPlayingChannel = MethodChannel('com.mytube/nowPlaying');
@@ -1749,11 +1757,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     return manager.getLocalFile(_job.id);
   }
 
-  Future<void> _loadCurrentTrack() async {
+  Future<void> _loadCurrentTrack({
+    Duration? recoveryPosition,
+    bool isRecovery = false,
+  }) async {
+    if (!isRecovery) {
+      _recoveryTimer?.cancel();
+      _recoveryTimer = null;
+      _recoveryAttempt = 0;
+      _recoveryPosition = Duration.zero;
+      _recoveryReason = null;
+      _recovering = false;
+    }
     final generation = ++_loadGeneration;
     final previous = _controller;
     _controller = null;
     _controlsTimer?.cancel();
+    _bufferingRecoveryTimer?.cancel();
+    _bufferingRecoveryTimer = null;
     _setScreenAwake(false);
     if (previous != null) {
       previous.removeListener(_tick);
@@ -1768,24 +1789,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _completionHandled = false;
       _queueFinished = false;
       _controlsVisible = true;
-      _lastPersistedPosition = Duration.zero;
-      _resumedFrom = null;
-      _hasSavedProgress = false;
+      _recovering = isRecovery;
+      if (!isRecovery) {
+        _lastPersistedPosition = Duration.zero;
+        _resumedFrom = null;
+        _hasSavedProgress = false;
+      }
     });
 
+    VideoPlayerController? candidate;
     try {
       final localFile = await _localFileForCurrentTrack();
       if (!mounted || generation != _loadGeneration) return;
+      _usingNetworkVideo = localFile == null;
       final options = VideoPlayerOptions(
         allowBackgroundPlayback: true,
         mixWithOthers: false,
       );
-      final controller = localFile != null
+      candidate = localFile != null
           ? VideoPlayerController.file(localFile, videoPlayerOptions: options)
           : VideoPlayerController.networkUrl(
               Uri.parse(_currentVideoUrl),
               videoPlayerOptions: options,
             );
+      final controller = candidate;
       await controller.initialize();
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
@@ -1796,29 +1823,103 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         await controller.dispose();
         return;
       }
-      final resumedFrom = _progressStore.positionFor(
-        _progressKey,
-        controller.value.duration,
-      );
+      final resumedFrom = recoveryPosition == null
+          ? _progressStore.positionFor(_progressKey, controller.value.duration)
+          : boundedRecoveryPosition(
+              recoveryPosition,
+              controller.value.duration,
+            );
       if (resumedFrom != null) await controller.seekTo(resumedFrom);
       _controller = controller;
       controller.addListener(_tick);
       await controller.setPlaybackSpeed(_speed);
       setState(() {
         _ready = true;
-        _resumedFrom = resumedFrom;
-        _hasSavedProgress = resumedFrom != null;
+        _recovering = false;
+        _recoveryAttempt = 0;
+        _recoveryReason = null;
+        if (!isRecovery) {
+          _resumedFrom = resumedFrom;
+          _hasSavedProgress = resumedFrom != null;
+        }
         _lastPersistedPosition = resumedFrom ?? Duration.zero;
       });
-      if (!_sessionEnded) {
+      if (!_sessionEnded && (!isRecovery || _wasPlayingBeforeBackground)) {
         _wasPlayingBeforeBackground = true;
         await controller.play();
       }
       _updateNowPlaying(force: true);
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
-      setState(() => _error = error.toString());
+      if (_controller == candidate) {
+        candidate?.removeListener(_tick);
+        _controller = null;
+      }
+      if (candidate != null) await candidate.dispose();
+      if (_usingNetworkVideo && !_sessionEnded) {
+        _scheduleRecovery(
+          error,
+          position: recoveryPosition ?? Duration.zero,
+          rewind: false,
+        );
+      } else {
+        setState(() {
+          _recovering = false;
+          _error = error.toString();
+        });
+      }
     }
+  }
+
+  void _scheduleRecovery(
+    Object error, {
+    required Duration position,
+    Duration duration = Duration.zero,
+    bool rewind = true,
+  }) {
+    if (!mounted || _recoveryTimer != null) return;
+    if (_recoveryAttempt >= maximumAutomaticRecoveryAttempts) {
+      setState(() {
+        _recovering = false;
+        _ready = false;
+        _error = error.toString();
+      });
+      return;
+    }
+
+    _recoveryAttempt++;
+    _recoveryPosition = rewind
+        ? recoveryPositionFor(position, duration)
+        : boundedRecoveryPosition(position, duration);
+    _recoveryReason = error.toString();
+    _recovering = true;
+    _ready = false;
+    _bufferingRecoveryTimer?.cancel();
+    _bufferingRecoveryTimer = null;
+    _setScreenAwake(false);
+    final delay = recoveryDelayForAttempt(_recoveryAttempt);
+    setState(() {});
+    _recoveryTimer = Timer(delay, () {
+      _recoveryTimer = null;
+      if (!mounted) return;
+      unawaited(
+        _loadCurrentTrack(
+          recoveryPosition: _recoveryPosition,
+          isRecovery: true,
+        ),
+      );
+    });
+  }
+
+  void _retryRecoveryNow() {
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _recoveryAttempt = 0;
+    _error = null;
+    _recovering = true;
+    unawaited(
+      _loadCurrentTrack(recoveryPosition: _recoveryPosition, isRecovery: true),
+    );
   }
 
   Future<void> _changeTrack(int index) async {
@@ -1921,6 +2022,38 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
+  void _watchForStalledPlayback(
+    VideoPlayerController controller,
+    VideoPlayerValue value,
+  ) {
+    final shouldWatch =
+        _usingNetworkVideo &&
+        !_recovering &&
+        _wasPlayingBeforeBackground &&
+        value.isBuffering;
+    if (!shouldWatch) {
+      _bufferingRecoveryTimer?.cancel();
+      _bufferingRecoveryTimer = null;
+      return;
+    }
+    _bufferingRecoveryTimer ??= Timer(stalledPlaybackRecoveryDelay, () {
+      _bufferingRecoveryTimer = null;
+      if (!mounted ||
+          _controller != controller ||
+          _recovering ||
+          !controller.value.isBuffering ||
+          !_wasPlayingBeforeBackground) {
+        return;
+      }
+      _persistCurrentProgress(force: true);
+      _scheduleRecovery(
+        'Playback stopped receiving data.',
+        position: controller.value.position,
+        duration: controller.value.duration,
+      );
+    });
+  }
+
   void _persistCurrentProgress({bool force = false}) {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
@@ -1992,7 +2125,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final controller = _controller;
     if (!mounted || controller == null) return;
     final value = controller.value;
-    _syncPlaybackChrome(value.isPlaying);
+    if (value.hasError) {
+      if (!_recovering) {
+        _persistCurrentProgress(force: true);
+        _scheduleRecovery(
+          value.errorDescription ?? 'The video connection was interrupted.',
+          position: value.position,
+          duration: value.duration,
+        );
+      }
+      return;
+    }
+    _watchForStalledPlayback(controller, value);
+    _syncPlaybackChrome(
+      value.isPlaying || (value.isBuffering && _wasPlayingBeforeBackground),
+    );
     if (!_completionHandled &&
         value.isInitialized &&
         value.duration > Duration.zero &&
@@ -2066,6 +2213,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     unawaited(_progressStore.flush());
     _sessionTimer?.cancel();
     _controlsTimer?.cancel();
+    _recoveryTimer?.cancel();
+    _bufferingRecoveryTimer?.cancel();
     _setScreenAwake(false);
     WidgetsBinding.instance.removeObserver(this);
     _controller?.removeListener(_tick);
@@ -2465,6 +2614,57 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   Widget build(BuildContext context) {
     final title = _job.title.isNotEmpty ? _job.title : 'Video #${_job.id}';
+    if (_recovering) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: Text(title, overflow: TextOverflow.ellipsis),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 20),
+                const Text(
+                  'Connection interrupted. Reconnecting…',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Attempt $_recoveryAttempt of '
+                  '$maximumAutomaticRecoveryAttempts · playback will resume '
+                  'from ${_fmt(_recoveryPosition)}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white60),
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: _retryRecoveryNow,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry now'),
+                ),
+                if (_hasNext) ...[
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => _changeTrack(_index + 1),
+                    icon: const Icon(Icons.skip_next),
+                    label: const Text('Skip to next'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (_error != null) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -2482,13 +2682,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Failed to load video:\n$_error',
+                  'Could not restore the video connection.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _recoveryReason ?? _error!,
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: _retryRecoveryNow,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Try again'),
                 ),
                 if (_hasNext) ...[
-                  const SizedBox(height: 20),
-                  FilledButton.icon(
+                  const SizedBox(height: 12),
+                  TextButton.icon(
                     onPressed: () => _changeTrack(_index + 1),
                     icon: const Icon(Icons.skip_next),
                     label: const Text('Skip to next'),
