@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'playlist.dart';
 
@@ -1669,8 +1670,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _sessionEnded = false;
   int _loadGeneration = 0;
   Timer? _sessionTimer;
+  Timer? _controlsTimer;
   DateTime? _sessionDeadline;
   Duration _sessionRemaining = Duration.zero;
+  bool _controlsVisible = true;
+  bool _screenAwakeForPlayback = false;
 
   // Now Playing / lock-screen controls.
   static const _nowPlayingChannel = MethodChannel('com.mytube/nowPlaying');
@@ -1741,6 +1745,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final generation = ++_loadGeneration;
     final previous = _controller;
     _controller = null;
+    _controlsTimer?.cancel();
+    _setScreenAwake(false);
     if (previous != null) {
       previous.removeListener(_tick);
       await previous.pause();
@@ -1753,6 +1759,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _error = null;
       _completionHandled = false;
       _queueFinished = false;
+      _controlsVisible = true;
     });
 
     try {
@@ -1813,6 +1820,76 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
   }
 
+  void _setScreenAwake(bool enabled) {
+    if (_screenAwakeForPlayback == enabled) return;
+    _screenAwakeForPlayback = enabled;
+    unawaited(enabled ? WakelockPlus.enable() : WakelockPlus.disable());
+  }
+
+  void _restartControlsHideTimer() {
+    _controlsTimer?.cancel();
+    final controller = _controller;
+    if (!mounted || controller == null || !controller.value.isPlaying) return;
+    _controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || !(_controller?.value.isPlaying ?? false)) return;
+      setState(() => _controlsVisible = false);
+    });
+  }
+
+  void _showControls() {
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _restartControlsHideTimer();
+  }
+
+  void _toggleControls() {
+    final isPlaying = _controller?.value.isPlaying ?? false;
+    if (_controlsVisible && isPlaying) {
+      _controlsTimer?.cancel();
+      setState(() => _controlsVisible = false);
+    } else {
+      _showControls();
+    }
+  }
+
+  Future<void> _togglePlayback() async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (controller.value.isPlaying) {
+      _wasPlayingBeforeBackground = false;
+      await controller.pause();
+    } else if (!_sessionEnded) {
+      _wasPlayingBeforeBackground = true;
+      await controller.play();
+    }
+    _showControls();
+  }
+
+  void _seekBy(Duration offset) {
+    final controller = _controller;
+    if (controller == null) return;
+    final duration = controller.value.duration;
+    final target = controller.value.position + offset;
+    controller.seekTo(
+      Duration(
+        milliseconds: target.inMilliseconds
+            .clamp(0, duration.inMilliseconds)
+            .toInt(),
+      ),
+    );
+    _showControls();
+  }
+
+  void _syncPlaybackChrome(bool isPlaying) {
+    if (_screenAwakeForPlayback == isPlaying) return;
+    _setScreenAwake(isPlaying);
+    if (isPlaying) {
+      _restartControlsHideTimer();
+    } else {
+      _controlsTimer?.cancel();
+      _controlsVisible = true;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final controller = _controller;
@@ -1848,6 +1925,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final controller = _controller;
     if (!mounted || controller == null) return;
     final value = controller.value;
+    _syncPlaybackChrome(value.isPlaying);
     if (!_completionHandled &&
         value.isInitialized &&
         value.duration > Duration.zero &&
@@ -1916,6 +1994,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void dispose() {
     _loadGeneration++;
     _sessionTimer?.cancel();
+    _controlsTimer?.cancel();
+    _setScreenAwake(false);
     WidgetsBinding.instance.removeObserver(this);
     _controller?.removeListener(_tick);
     _nowPlayingChannel.invokeMethod<void>('clear');
@@ -1937,6 +2017,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final newSpeed = _speeds[(_speeds.indexOf(_speed) + 1) % _speeds.length];
     setState(() => _speed = newSpeed);
     _controller?.setPlaybackSpeed(newSpeed);
+    _showControls();
   }
 
   void _showInfo() {
@@ -2014,9 +2095,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 ),
                 child: Slider(
                   value: progress,
+                  onChangeStart: (_) => _controlsTimer?.cancel(),
                   onChanged: (v) => controller.seekTo(
                     Duration(milliseconds: (v * dur.inMilliseconds).round()),
                   ),
+                  onChangeEnd: (_) => _showControls(),
                 ),
               ),
               Padding(
@@ -2062,18 +2145,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   IconButton(
                     iconSize: 40,
                     color: Colors.white,
-                    onPressed: () => controller.seekTo(
-                      Duration(
-                        seconds: (pos.inSeconds - 10).clamp(0, dur.inSeconds),
-                      ),
-                    ),
+                    onPressed: () => _seekBy(const Duration(seconds: -10)),
                     icon: const Icon(Icons.replay_10),
                   ),
                   IconButton(
                     iconSize: 68,
                     color: Colors.white,
-                    onPressed: () =>
-                        isPlaying ? controller.pause() : controller.play(),
+                    onPressed: _togglePlayback,
                     icon: Icon(
                       isPlaying ? Icons.pause_circle : Icons.play_circle,
                     ),
@@ -2081,11 +2159,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   IconButton(
                     iconSize: 40,
                     color: Colors.white,
-                    onPressed: () => controller.seekTo(
-                      Duration(
-                        seconds: (pos.inSeconds + 10).clamp(0, dur.inSeconds),
-                      ),
-                    ),
+                    onPressed: () => _seekBy(const Duration(seconds: 10)),
                     icon: const Icon(Icons.forward_10),
                   ),
                   const SizedBox(width: 56),
@@ -2148,6 +2222,170 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               const SizedBox(height: 4),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactLandscapeControls(
+    Duration pos,
+    Duration dur,
+    double progress,
+    bool isPlaying,
+  ) {
+    final controller = _controller!;
+    final buttonStyle = IconButton.styleFrom(
+      foregroundColor: Colors.white,
+      disabledForegroundColor: Colors.white24,
+      minimumSize: const Size(44, 44),
+      padding: const EdgeInsets.all(6),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xF0000000), Color(0xA8000000), Colors.transparent],
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(left: 8, right: 8, bottom: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 48,
+                  child: Text(
+                    _fmt(pos),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 6,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 16,
+                      ),
+                      activeTrackColor: Colors.red,
+                      inactiveTrackColor: Colors.white30,
+                      thumbColor: Colors.white,
+                      overlayColor: Colors.white24,
+                    ),
+                    child: Slider(
+                      value: progress,
+                      onChangeStart: (_) => _controlsTimer?.cancel(),
+                      onChanged: (value) => controller.seekTo(
+                        Duration(
+                          milliseconds: (value * dur.inMilliseconds).round(),
+                        ),
+                      ),
+                      onChangeEnd: (_) => _showControls(),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 48,
+                  child: Text(
+                    _fmt(dur),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 46,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: TextButton(
+                      onPressed: _cycleSpeed,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(44, 44),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        _speedLabels[_speed] ?? '$_speed×',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  if (widget.playlistMode)
+                    IconButton(
+                      tooltip: 'Previous video',
+                      style: buttonStyle,
+                      onPressed: _hasPrevious && !_changingTrack
+                          ? () => _changeTrack(_index - 1)
+                          : null,
+                      icon: const Icon(Icons.skip_previous, size: 25),
+                    ),
+                  IconButton(
+                    tooltip: 'Back 10 seconds',
+                    style: buttonStyle,
+                    onPressed: () => _seekBy(const Duration(seconds: -10)),
+                    icon: const Icon(Icons.replay_10, size: 25),
+                  ),
+                  IconButton(
+                    tooltip: isPlaying ? 'Pause' : 'Play',
+                    style: buttonStyle,
+                    onPressed: _togglePlayback,
+                    icon: Icon(
+                      isPlaying ? Icons.pause_circle : Icons.play_circle,
+                      size: 42,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Forward 10 seconds',
+                    style: buttonStyle,
+                    onPressed: () => _seekBy(const Duration(seconds: 10)),
+                    icon: const Icon(Icons.forward_10, size: 25),
+                  ),
+                  if (widget.playlistMode)
+                    IconButton(
+                      tooltip: 'Next video',
+                      style: buttonStyle,
+                      onPressed: _hasNext && !_changingTrack && !_sessionEnded
+                          ? () => _changeTrack(_index + 1)
+                          : null,
+                      icon: const Icon(Icons.skip_next, size: 25),
+                    ),
+                  const Spacer(),
+                  if (widget.playlistMode)
+                    Flexible(
+                      child: Text(
+                        _sessionEnded
+                            ? 'Session complete'
+                            : '${_index + 1}/${widget.jobs.length} · ${_fmt(_sessionRemaining)} left',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          color: _sessionEnded
+                              ? Colors.amberAccent
+                              : Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 6),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2226,46 +2464,95 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         });
 
         if (isLandscape) {
-          // Landscape: video fills the full screen, controls overlaid at bottom.
           return Scaffold(
             backgroundColor: Colors.black,
             body: Stack(
               fit: StackFit.expand,
               children: [
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: controller.value.aspectRatio,
-                    child: VideoPlayer(controller),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleControls,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: controller.value.aspectRatio,
+                      child: VideoPlayer(controller),
+                    ),
                   ),
                 ),
                 Positioned(
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: _buildControls(pos, dur, progress, isPlaying),
+                  child: IgnorePointer(
+                    ignoring: !_controlsVisible,
+                    child: AnimatedOpacity(
+                      opacity: _controlsVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 220),
+                      child: _buildCompactLandscapeControls(
+                        pos,
+                        dur,
+                        progress,
+                        isPlaying,
+                      ),
+                    ),
+                  ),
                 ),
                 Positioned(
                   top: 0,
                   left: 0,
-                  child: SafeArea(
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
+                  right: 0,
+                  child: IgnorePointer(
+                    ignoring: !_controlsVisible,
+                    child: AnimatedOpacity(
+                      opacity: _controlsVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 220),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xB8000000), Colors.transparent],
                           ),
-                          onPressed: () => Navigator.pop(context),
                         ),
-                        IconButton(
-                          tooltip: 'Video info',
-                          icon: const Icon(
-                            Icons.info_outline,
-                            color: Colors.white,
+                        child: SafeArea(
+                          bottom: false,
+                          child: SizedBox(
+                            height: 48,
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  tooltip: 'Back',
+                                  icon: const Icon(
+                                    Icons.arrow_back,
+                                    color: Colors.white,
+                                  ),
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Video info',
+                                  icon: const Icon(
+                                    Icons.info_outline,
+                                    color: Colors.white,
+                                  ),
+                                  onPressed: _showInfo,
+                                ),
+                              ],
+                            ),
                           ),
-                          onPressed: _showInfo,
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -2307,9 +2594,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               ),
             ],
           ),
-          body: Column(
+          body: Stack(
+            fit: StackFit.expand,
             children: [
-              Expanded(
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControls,
                 child: Center(
                   child: AspectRatio(
                     aspectRatio: controller.value.aspectRatio,
@@ -2317,7 +2607,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                   ),
                 ),
               ),
-              _buildControls(pos, dur, progress, isPlaying),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    opacity: _controlsVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    child: _buildControls(pos, dur, progress, isPlaying),
+                  ),
+                ),
+              ),
             ],
           ),
         );
