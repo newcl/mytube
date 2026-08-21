@@ -32,7 +32,7 @@ class ShareViewController: UIViewController {
 
   private let titleLabel: UILabel = {
     let l = UILabel()
-    l.text = "MyTube"
+    l.text = "Mytube"
     l.font = .systemFont(ofSize: 20, weight: .bold)
     l.textAlignment = .center
     l.translatesAutoresizingMaskIntoConstraints = false
@@ -145,7 +145,7 @@ class ShareViewController: UIViewController {
       return
     }
 
-    DispatchQueue.main.async { self.statusLabel.text = "Sending to MyTube..." }
+    DispatchQueue.main.async { self.statusLabel.text = "Sending to Mytube..." }
 
     var request = URLRequest(url: endpoint, timeoutInterval: 10)
     request.httpMethod = "POST"
@@ -155,7 +155,7 @@ class ShareViewController: UIViewController {
 
     URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
       let statusCode = (response as? HTTPURLResponse)?.statusCode
-      let ok = statusCode == 201
+      let ok = statusCode == 200 || statusCode == 201
       let msg = ok
         ? "Added to queue ✓"
         : "Failed (HTTP \(statusCode ?? 0)). Check app settings."

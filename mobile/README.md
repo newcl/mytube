@@ -1,6 +1,6 @@
-# mytube_mobile
+# Mytube
 
-MyTube mobile app (Flutter).
+Mytube mobile app (Flutter).
 
 ## iOS Deploy Workflow
 

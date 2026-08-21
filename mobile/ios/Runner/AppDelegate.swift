@@ -38,10 +38,15 @@ import UIKit
     switch call.method {
     case "update":
       guard let args = call.arguments as? [String: Any] else { result(nil); return }
-      let title    = args["title"]     as? String ?? "MyTube"
+      let title    = args["title"]     as? String ?? "Mytube"
       let position = args["position"]  as? Double ?? 0
       let duration = args["duration"]  as? Double ?? 0
       let isPlaying = args["isPlaying"] as? Bool ?? false
+      let hasNext = args["hasNext"] as? Bool ?? false
+      let hasPrevious = args["hasPrevious"] as? Bool ?? false
+      let commandCenter = MPRemoteCommandCenter.shared()
+      commandCenter.nextTrackCommand.isEnabled = hasNext
+      commandCenter.previousTrackCommand.isEnabled = hasPrevious
       var info: [String: Any] = [
         MPMediaItemPropertyTitle:                  title,
         MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
@@ -56,6 +61,8 @@ import UIKit
       result(nil)
     case "clear":
       MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+      MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = false
+      MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = false
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -104,6 +111,8 @@ import UIKit
     center.pauseCommand.isEnabled = true
     center.togglePlayPauseCommand.isEnabled = true
     center.changePlaybackPositionCommand.isEnabled = true
+    center.nextTrackCommand.isEnabled = false
+    center.previousTrackCommand.isEnabled = false
 
     center.playCommand.addTarget { [weak self] _ in
       self?.nowPlayingChannel?.invokeMethod("play", arguments: nil)
@@ -122,6 +131,14 @@ import UIKit
       if let e = event as? MPChangePlaybackPositionCommandEvent {
         self?.nowPlayingChannel?.invokeMethod("seekTo", arguments: e.positionTime)
       }
+      return .success
+    }
+    center.nextTrackCommand.addTarget { [weak self] _ in
+      self?.nowPlayingChannel?.invokeMethod("nextTrack", arguments: nil)
+      return .success
+    }
+    center.previousTrackCommand.addTarget { [weak self] _ in
+      self?.nowPlayingChannel?.invokeMethod("previousTrack", arguments: nil)
       return .success
     }
   }
