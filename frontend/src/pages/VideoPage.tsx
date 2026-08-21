@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Typography, Progress, Button, Space, message, Image } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined, PictureOutlined } from '@ant-design/icons';
-import { BACKEND_URL } from '../config';
+import { getApiBase } from '../config';
 
 const { Title, Text } = Typography;
 
@@ -30,9 +30,9 @@ export default function VideoPage() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
-  const fetchVideo = async () => {
+  const fetchVideo = useCallback(async () => {
     try {
-      const url = new URL(`/api/videos/${id}`, BACKEND_URL).toString();
+      const url = new URL(`/api/videos/${id}`, getApiBase()).toString();
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch video');
@@ -40,19 +40,19 @@ export default function VideoPage() {
       const data = await response.json();
       setVideo(data);
       setError(null);
-    } catch (err) {
+    } catch {
       setError('Failed to load video');
       message.error('Failed to load video');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   // Setup SSE connection for progress updates
   useEffect(() => {
     if (!id) return;
     
-    const eventSource = new EventSource(new URL(`/api/videos/${id}/progress`, BACKEND_URL).toString());
+    const eventSource = new EventSource(new URL(`/api/videos/${id}/progress`, getApiBase()).toString());
     
     eventSource.onmessage = (event) => {
       try {
@@ -105,18 +105,18 @@ export default function VideoPage() {
     return () => {
       eventSource.close();
     };
-  }, [id]);
+  }, [fetchVideo, id]);
 
   const handleRetry = async () => {
     try {
-      const url = new URL(`/api/videos/${id}/retry`, BACKEND_URL).toString();
+      const url = new URL(`/api/videos/${id}/retry`, getApiBase()).toString();
       const response = await fetch(url, {
         method: 'POST',
       });
       if (!response.ok) throw new Error('Failed to retry download');
       message.success('Download restarted');
       fetchVideo();
-    } catch (err) {
+    } catch {
       message.error('Failed to retry download');
     }
   };

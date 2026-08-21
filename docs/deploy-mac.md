@@ -115,6 +115,39 @@ MYTUBE_COOKIE_BROWSER=chrome
 MYTUBE_JS_RUNTIME=deno
 ```
 
+### Optional private Prometheus metrics
+
+Metrics are disabled unless both variables below are configured:
+
+```text
+MYTUBE_METRICS_BIND=<specific-private-mac-ip>:9091
+MYTUBE_METRICS_TOKEN=<dedicated-random-token>
+```
+
+The metrics token must differ from `MYTUBE_TOKEN`. The bind address must be a
+specific loopback or RFC1918/private IP; wildcard and public binds are rejected
+at startup. For centralized homelab scraping, use the Mac address on the
+VMware/private network that is reachable only from the VM. Keep the API listener
+on `127.0.0.1:8081` and do not publish the metrics listener through Cloudflare.
+
+The metrics endpoint accepts only an authorization header:
+
+```text
+Authorization: Bearer <MYTUBE_METRICS_TOKEN>
+```
+
+Query-string authentication is intentionally disabled. Store the token only in
+the local service environment and the Prometheus Kubernetes Secret; never put
+it in Git. The live service should not be enabled until the private Mac address,
+VM reachability, firewall scope, scrape Secret, and rollback path are verified.
+
+Product analytics use a separate SQLite database at
+`<MYTUBE_STATE_DIR>/analytics.sqlite`. Override it only when necessary with
+`MYTUBE_ANALYTICS_DB_PATH`. Raw validated events are retained for 90 days;
+daily event-count rollups are retained. Analytics database startup failures do
+not stop downloads or playback—the authenticated telemetry endpoint returns
+`503` until storage is available.
+
 The service must run as the logged-in macOS user so yt-dlp can access the
 Chrome profile and macOS Keychain. On the first access, macOS may request
 Keychain permission. Use a dedicated YouTube profile/account.

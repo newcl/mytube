@@ -37,6 +37,8 @@ func TestLoadConfigFileAndEnvironmentOverride(t *testing.T) {
 		"MYTUBE_TOKEN=file-token\n"+
 			"MYTUBE_BIND=\"127.0.0.1:9999\"\n"+
 			"MYTUBE_STATE_DIR=/tmp/mytube state\n"+
+			"MYTUBE_METRICS_BIND=127.0.0.1:9091\n"+
+			"MYTUBE_METRICS_TOKEN=metrics-token\n"+
 			"MYTUBE_CONCURRENCY=4\n",
 	), 0600)
 	if err != nil {
@@ -57,7 +59,45 @@ func TestLoadConfigFileAndEnvironmentOverride(t *testing.T) {
 	if cfg.DBPath != "/tmp/mytube state/mytube.db" {
 		t.Fatalf("DBPath = %q", cfg.DBPath)
 	}
+	if cfg.AnalyticsPath != "/tmp/mytube state/analytics.sqlite" {
+		t.Fatalf("AnalyticsPath = %q", cfg.AnalyticsPath)
+	}
 	if cfg.Concurrency != 4 {
 		t.Fatalf("Concurrency = %d", cfg.Concurrency)
+	}
+	if cfg.MetricsBind != "127.0.0.1:9091" || cfg.MetricsToken != "metrics-token" {
+		t.Fatalf("unexpected metrics configuration: %#v", cfg)
+	}
+}
+
+func TestValidateServeMetricsConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		bind    string
+		token   string
+		wantErr bool
+	}{
+		{name: "disabled"},
+		{name: "private", bind: "192.168.234.1:9091", token: "metrics-token"},
+		{name: "loopback", bind: "127.0.0.1:9091", token: "metrics-token"},
+		{name: "missing token", bind: "127.0.0.1:9091", wantErr: true},
+		{name: "missing bind", token: "metrics-token", wantErr: true},
+		{name: "wildcard", bind: ":9091", token: "metrics-token", wantErr: true},
+		{name: "public IP", bind: "8.8.8.8:9091", token: "metrics-token", wantErr: true},
+		{name: "shared token", bind: "127.0.0.1:9091", token: "api-token", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Config{
+				Token:        "api-token",
+				MetricsBind:  test.bind,
+				MetricsToken: test.token,
+			}
+			err := cfg.ValidateServe()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateServe() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
 	}
 }

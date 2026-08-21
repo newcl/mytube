@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	analyticsPkg "github.com/newcl/mytube/backend/internal/analytics"
 	dbpkg "github.com/newcl/mytube/backend/internal/db"
 )
 
@@ -50,7 +51,9 @@ func toJobResponse(j *dbpkg.Job) jobResponse {
 
 // Handler holds the HTTP handler dependencies.
 type Handler struct {
-	DB *sql.DB
+	DB               *sql.DB
+	Analytics        *analyticsPkg.Store
+	TelemetryMetrics TelemetryRecorder
 }
 
 // PostJob handles POST /api/jobs.

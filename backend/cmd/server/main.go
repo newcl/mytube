@@ -19,9 +19,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	analyticsPkg "github.com/newcl/mytube/backend/internal/analytics"
 	apiPkg "github.com/newcl/mytube/backend/internal/api"
 	configPkg "github.com/newcl/mytube/backend/internal/config"
 	dbPkg "github.com/newcl/mytube/backend/internal/db"
+	metricsPkg "github.com/newcl/mytube/backend/internal/metrics"
 	authPkg "github.com/newcl/mytube/backend/internal/middleware"
 	toolingPkg "github.com/newcl/mytube/backend/internal/tooling"
 	workerPkg "github.com/newcl/mytube/backend/internal/worker"
@@ -132,6 +134,14 @@ func serveCommand(args []string) int {
 	}
 	defer database.Close()
 
+	analyticsStore, analyticsErr := analyticsPkg.Open(cfg.AnalyticsPath)
+	if analyticsErr != nil {
+		log.Printf("analytics disabled: %v", analyticsErr)
+	} else {
+		defer analyticsStore.Close()
+		go analyticsStore.RunMaintenance(ctx)
+	}
+
 	recovered, err := dbPkg.RecoverInterruptedJobs(database)
 	if err != nil {
 		log.Printf("recover interrupted jobs: %v", err)
@@ -141,8 +151,9 @@ func serveCommand(args []string) int {
 		log.Printf("recovered %d interrupted job(s)", recovered)
 	}
 
-	handler := &apiPkg.Handler{DB: database}
-	router := buildRouter(handler, database, cfg)
+	appMetrics := metricsPkg.New(buildVersion, buildCommit, buildDate)
+	handler := &apiPkg.Handler{DB: database, Analytics: analyticsStore, TelemetryMetrics: appMetrics}
+	router := buildRouter(handler, database, cfg, appMetrics)
 
 	downloadWorker := workerPkg.New(
 		database,
@@ -152,6 +163,7 @@ func serveCommand(args []string) int {
 		cfg.CookieBrowser,
 		cfg.CookieFile,
 		cfg.JSRuntime,
+		appMetrics,
 	)
 	go downloadWorker.Run(ctx)
 
@@ -163,14 +175,30 @@ func serveCommand(args []string) int {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	servers := []namedServer{{name: "server", server: server}}
+	if cfg.MetricsBind != "" {
+		servers = append(servers, namedServer{
+			name: "metrics server",
+			server: &http.Server{
+				Addr:         cfg.MetricsBind,
+				Handler:      buildMetricsRouter(appMetrics.Handler(), cfg.MetricsToken),
+				ReadTimeout:  10 * time.Second,
+				WriteTimeout: 30 * time.Second,
+				IdleTimeout:  60 * time.Second,
+			},
+		})
+	}
+
 	serverErrors := make(chan error, 1)
 	go func() {
-		log.Printf("server: listening on %s", cfg.Bind)
+		log.Printf("server: listening on %s", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErrors <- err
+			serverErrors <- fmt.Errorf("server: %w", err)
 		}
-		close(serverErrors)
 	}()
+	if len(servers) > 1 {
+		go serveOptionalServer(ctx, servers[1])
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -187,15 +215,49 @@ func serveCommand(args []string) int {
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("server: shutdown error: %v", err)
-		return 1
+	for _, current := range servers {
+		if err := current.server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("%s: shutdown error: %v", current.name, err)
+			return 1
+		}
 	}
 	return 0
 }
 
-func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config) http.Handler {
+type namedServer struct {
+	name   string
+	server *http.Server
+}
+
+// serveOptionalServer prevents observability from becoming an application
+// dependency. In particular, VMware removes its private Mac interface while
+// Fusion is stopped; metrics binding retries after the interface returns while
+// the loopback application API continues serving normally.
+func serveOptionalServer(ctx context.Context, current namedServer) {
+	const retryInterval = 30 * time.Second
+	for {
+		listener, err := net.Listen("tcp", current.server.Addr)
+		if err == nil {
+			log.Printf("%s: listening on %s", current.name, current.server.Addr)
+			err = current.server.Serve(listener)
+			if err == http.ErrServerClosed || ctx.Err() != nil {
+				return
+			}
+		}
+		log.Printf("%s: unavailable: %v; retrying in %s", current.name, err, retryInterval)
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config, appMetrics *metricsPkg.Recorder) http.Handler {
 	router := chi.NewRouter()
+	router.Use(appMetrics.HTTPMiddleware)
 	router.Use(middleware.RequestLogger(&redactingLogFormatter{
 		delegate: &middleware.DefaultLogFormatter{Logger: log.Default(), NoColor: true},
 	}))
@@ -211,6 +273,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config
 	router.Group(func(router chi.Router) {
 		router.Use(authPkg.BearerAuth(cfg.Token, false))
 		router.Post("/api/jobs", handler.PostJob)
+		router.Post("/api/telemetry/events", handler.PostTelemetryEvents)
 		router.Get("/api/jobs", handler.GetJobs)
 		router.Get("/api/jobs/{id}", handler.GetJob)
 		router.Delete("/api/jobs/{id}", handler.DeleteJob)
@@ -228,6 +291,13 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	return router
+}
+
+func buildMetricsRouter(metricsHandler http.Handler, token string) http.Handler {
+	router := chi.NewRouter()
+	router.Use(authPkg.BearerAuth(token, false))
+	router.Get("/metrics", metricsHandler.ServeHTTP)
 	return router
 }
 

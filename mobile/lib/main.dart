@@ -12,13 +12,15 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'playback_progress.dart';
 import 'player_recovery.dart';
 import 'playlist.dart';
+import 'telemetry.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
 const String kKeyServerUrl = 'mytube_server_url';
 const String kKeyBearerToken = 'mytube_bearer_token';
 const String kDefaultApiUrl = 'https://mytubeapi.elladali.com';
-const String kDefaultToken =
-    'a86ff4614dc198cdaaa004e344e2ea3656a88fbd07959ead78e7c496f426cfc4';
+const String kDefaultToken = '';
+const String kMobileAppVersion = '1.0.0';
+late final MobileTelemetry appTelemetry;
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -209,6 +211,20 @@ class LocalDownloadManager {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  const bootstrapStorage = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+      groupId: 'com.mytube.mytubeMobile',
+    ),
+  );
+  appTelemetry = MobileTelemetry(
+    storage: const SecureTelemetryStorage(bootstrapStorage),
+  );
+  await appTelemetry.initialize(
+    baseUrl: kDefaultApiUrl,
+    token: kDefaultToken,
+    appVersion: kMobileAppVersion,
+  );
   runApp(const MyTubeApp());
 }
 
@@ -298,6 +314,8 @@ class _MainShellState extends State<MainShell> {
       // Keychain unavailable or timed out — proceed with defaults
     }
     if (!mounted) return;
+    appTelemetry.configure(baseUrl: url, token: token);
+    unawaited(appTelemetry.flush(ignoreBackoff: true));
     setState(() => _api = ApiService(baseUrl: url, token: token));
   }
 
@@ -311,6 +329,10 @@ class _MainShellState extends State<MainShell> {
         await channel.invokeMethod('clearPendingUrl');
         try {
           await _api.createJob(url);
+          appTelemetry.track(
+            TelemetryEventName.downloadSubmitted,
+            outcomeCode: 'share_extension',
+          );
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -320,7 +342,12 @@ class _MainShellState extends State<MainShell> {
             );
             setState(() => _index = 0);
           }
-        } catch (_) {}
+        } catch (_) {
+          appTelemetry.track(
+            TelemetryEventName.downloadFailed,
+            outcomeCode: 'submit_error',
+          );
+        }
       }
     } catch (_) {}
   }
@@ -856,6 +883,11 @@ class _PlaylistPageState extends State<PlaylistPage>
     }
     final initialIndex = playableOriginalIndices.indexOf(startIndex);
     if (initialIndex < 0 || !mounted) return;
+
+    appTelemetry.track(
+      TelemetryEventName.playlistStarted,
+      playbackMode: 'playlist',
+    );
 
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -1741,6 +1773,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           _sessionRemaining = Duration.zero;
           _sessionEnded = true;
         });
+        appTelemetry.track(
+          TelemetryEventName.playlistCompleted,
+          playbackMode: 'playlist',
+          outcomeCode: 'timer',
+        );
         _updateNowPlaying(force: true);
       } else {
         setState(() => _sessionRemaining = remaining);
@@ -1830,6 +1867,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
               controller.value.duration,
             );
       if (resumedFrom != null) await controller.seekTo(resumedFrom);
+      final recoveryAttempts = _recoveryAttempt;
       _controller = controller;
       controller.addListener(_tick);
       await controller.setPlaybackSpeed(_speed);
@@ -1847,6 +1885,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (!_sessionEnded && (!isRecovery || _wasPlayingBeforeBackground)) {
         _wasPlayingBeforeBackground = true;
         await controller.play();
+      }
+      if (isRecovery) {
+        appTelemetry.track(
+          TelemetryEventName.playbackRecovered,
+          playbackMode: widget.playlistMode ? 'playlist' : 'standalone',
+          retryCount: recoveryAttempts,
+        );
+      } else {
+        appTelemetry.track(
+          TelemetryEventName.videoStarted,
+          playbackMode: widget.playlistMode ? 'playlist' : 'standalone',
+        );
       }
       _updateNowPlaying(force: true);
     } catch (error) {
@@ -1888,6 +1938,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
 
     _recoveryAttempt++;
+    appTelemetry.track(
+      TelemetryEventName.playbackFailed,
+      playbackMode: widget.playlistMode ? 'playlist' : 'standalone',
+      retryCount: _recoveryAttempt,
+      outcomeCode: 'network',
+    );
     _recoveryPosition = rewind
         ? recoveryPositionFor(position, duration)
         : boundedRecoveryPosition(position, duration);
@@ -1935,18 +1991,46 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (mounted) setState(() => _changingTrack = false);
   }
 
+  Future<void> _skipTo(int index, String outcomeCode) async {
+    if (!widget.playlistMode) return;
+    appTelemetry.track(
+      TelemetryEventName.playlistItemSkipped,
+      playbackMode: 'playlist',
+      outcomeCode: outcomeCode,
+    );
+    await _changeTrack(index);
+  }
+
   void _handleTrackCompletion() {
     if (_completionHandled) return;
     _completionHandled = true;
     _progressStore.clear(_progressKey);
     _hasSavedProgress = false;
     _resumedFrom = null;
+    appTelemetry.track(
+      TelemetryEventName.videoCompleted,
+      playbackMode: widget.playlistMode ? 'playlist' : 'standalone',
+      elapsedSeconds: _controller?.value.position.inSeconds,
+    );
+    if (widget.playlistMode) {
+      appTelemetry.track(
+        TelemetryEventName.playlistItemCompleted,
+        playbackMode: 'playlist',
+      );
+    }
     if (_hasNext && !_sessionEnded) {
       unawaited(_changeTrack(_index + 1));
     } else if (mounted) {
       _wasPlayingBeforeBackground = false;
       _sessionTimer?.cancel();
       setState(() => _queueFinished = widget.playlistMode);
+      if (widget.playlistMode) {
+        appTelemetry.track(
+          TelemetryEventName.playlistCompleted,
+          playbackMode: 'playlist',
+          outcomeCode: 'finished',
+        );
+      }
       _updateNowPlaying(force: true);
     }
   }
@@ -2082,6 +2166,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _hasSavedProgress = false;
       _resumedFrom = null;
     });
+    appTelemetry.track(
+      TelemetryEventName.playbackStartedOver,
+      playbackMode: widget.playlistMode ? 'playlist' : 'standalone',
+    );
     await controller.seekTo(Duration.zero);
     if (!_sessionEnded && !controller.value.isPlaying) {
       _wasPlayingBeforeBackground = true;
@@ -2200,9 +2288,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         final secs = (call.arguments as num).toDouble();
         await controller.seekTo(Duration(milliseconds: (secs * 1000).round()));
       case 'nextTrack':
-        if (_hasNext) await _changeTrack(_index + 1);
+        if (_hasNext) {
+          appTelemetry.track(
+            TelemetryEventName.playlistItemSkipped,
+            playbackMode: 'playlist',
+            outcomeCode: 'next',
+          );
+          await _changeTrack(_index + 1);
+        }
       case 'previousTrack':
-        if (_hasPrevious) await _changeTrack(_index - 1);
+        if (_hasPrevious) {
+          appTelemetry.track(
+            TelemetryEventName.playlistItemSkipped,
+            playbackMode: 'playlist',
+            outcomeCode: 'previous',
+          );
+          await _changeTrack(_index - 1);
+        }
     }
   }
 
@@ -2392,7 +2494,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     IconButton(
                       tooltip: 'Previous video',
                       onPressed: _hasPrevious && !_changingTrack
-                          ? () => _changeTrack(_index - 1)
+                          ? () => _skipTo(_index - 1, 'previous')
                           : null,
                       color: Colors.white,
                       disabledColor: Colors.white24,
@@ -2430,7 +2532,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                     IconButton(
                       tooltip: 'Next video',
                       onPressed: _hasNext && !_changingTrack && !_sessionEnded
-                          ? () => _changeTrack(_index + 1)
+                          ? () => _skipTo(_index + 1, 'next')
                           : null,
                       color: Colors.white,
                       disabledColor: Colors.white24,
@@ -2548,7 +2650,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       tooltip: 'Previous video',
                       style: buttonStyle,
                       onPressed: _hasPrevious && !_changingTrack
-                          ? () => _changeTrack(_index - 1)
+                          ? () => _skipTo(_index - 1, 'previous')
                           : null,
                       icon: const Icon(Icons.skip_previous, size: 25),
                     ),
@@ -2578,7 +2680,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                       tooltip: 'Next video',
                       style: buttonStyle,
                       onPressed: _hasNext && !_changingTrack && !_sessionEnded
-                          ? () => _changeTrack(_index + 1)
+                          ? () => _skipTo(_index + 1, 'next')
                           : null,
                       icon: const Icon(Icons.skip_next, size: 25),
                     ),
@@ -2654,7 +2756,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 if (_hasNext) ...[
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    onPressed: () => _changeTrack(_index + 1),
+                    onPressed: () => _skipTo(_index + 1, 'next'),
                     icon: const Icon(Icons.skip_next),
                     label: const Text('Skip to next'),
                   ),
@@ -2703,7 +2805,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                 if (_hasNext) ...[
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    onPressed: () => _changeTrack(_index + 1),
+                    onPressed: () => _skipTo(_index + 1, 'next'),
                     icon: const Icon(Icons.skip_next),
                     label: const Text('Skip to next'),
                   ),
@@ -2978,6 +3080,10 @@ class _SubmitPageState extends State<SubmitPage> {
     });
     try {
       final id = await widget.api.createJob(url);
+      appTelemetry.track(
+        TelemetryEventName.downloadSubmitted,
+        outcomeCode: 'new',
+      );
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -2986,6 +3092,10 @@ class _SubmitPageState extends State<SubmitPage> {
       });
       _urlCtrl.clear();
     } catch (e) {
+      appTelemetry.track(
+        TelemetryEventName.downloadFailed,
+        outcomeCode: 'submit_error',
+      );
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -3085,6 +3195,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _tokenCtrl = TextEditingController();
   bool _tokenVisible = false;
   bool _saved = false;
+  bool _analyticsEnabled = true;
 
   @override
   void initState() {
@@ -3095,9 +3206,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     final url = await widget.storage.read(key: kKeyServerUrl);
     final token = await widget.storage.read(key: kKeyBearerToken);
+    final analytics = await widget.storage.read(key: telemetryEnabledKey);
+    if (!mounted) return;
     setState(() {
       _apiUrlCtrl.text = url ?? '';
       _tokenCtrl.text = token ?? '';
+      _analyticsEnabled = analytics != 'false';
     });
   }
 
@@ -3106,6 +3220,7 @@ class _SettingsPageState extends State<SettingsPage> {
       key: kKeyServerUrl,
       value: _apiUrlCtrl.text.trim(),
     );
+    await appTelemetry.setEnabled(_analyticsEnabled);
     await widget.storage.write(
       key: kKeyBearerToken,
       value: _tokenCtrl.text.trim(),
@@ -3171,6 +3286,17 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: _analyticsEnabled,
+                    onChanged: (value) =>
+                        setState(() => _analyticsEnabled = value),
+                    title: const Text('Share private usage analytics'),
+                    subtitle: const Text(
+                      'Sends playback, playlist, and download outcomes to your Mytube server. Never sends video URLs, titles, tokens, email, or device identifiers. Turning this off deletes queued events.',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(

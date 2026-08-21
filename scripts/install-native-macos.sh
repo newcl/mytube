@@ -213,6 +213,7 @@ plutil -lint "$PLIST"
 # Re-enable the label before bootstrapping the replacement LaunchAgent.
 launchctl enable "${DOMAIN}/${LABEL}"
 launchctl bootstrap "$DOMAIN" "$PLIST"
+wait_for_health
 
 echo "Installed and started: $LABEL"
 echo "Local health: http://127.0.0.1:8081/health"

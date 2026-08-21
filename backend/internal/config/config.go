@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,8 +15,11 @@ import (
 type Config struct {
 	Bind          string
 	Token         string
+	MetricsBind   string
+	MetricsToken  string
 	StateDir      string
 	DBPath        string
+	AnalyticsPath string
 	DownloadDir   string
 	Concurrency   int
 	CORSOrigins   []string
@@ -65,6 +69,10 @@ func Load(configPath string) (Config, error) {
 	if dbPath == "" {
 		dbPath = filepath.Join(stateDir, "mytube.db")
 	}
+	analyticsPath := get("MYTUBE_ANALYTICS_DB_PATH")
+	if analyticsPath == "" {
+		analyticsPath = filepath.Join(stateDir, "analytics.sqlite")
+	}
 	downloadDir := get("MYTUBE_DOWNLOAD_DIR")
 	if downloadDir == "" {
 		downloadDir = filepath.Join(stateDir, "downloads")
@@ -78,8 +86,11 @@ func Load(configPath string) (Config, error) {
 	return Config{
 		Bind:          valueOr(get("MYTUBE_BIND"), defaults.Bind),
 		Token:         get("MYTUBE_TOKEN"),
+		MetricsBind:   get("MYTUBE_METRICS_BIND"),
+		MetricsToken:  get("MYTUBE_METRICS_TOKEN"),
 		StateDir:      stateDir,
 		DBPath:        dbPath,
+		AnalyticsPath: analyticsPath,
 		DownloadDir:   downloadDir,
 		Concurrency:   concurrency,
 		CORSOrigins:   strings.Split(valueOr(get("MYTUBE_CORS_ORIGIN"), defaults.CORSOrigins[0]), ","),
@@ -100,6 +111,7 @@ func Defaults(goos, home string) Config {
 			Bind:          "127.0.0.1:8081",
 			StateDir:      stateDir,
 			DBPath:        filepath.Join(stateDir, "mytube.db"),
+			AnalyticsPath: filepath.Join(stateDir, "analytics.sqlite"),
 			DownloadDir:   filepath.Join(stateDir, "downloads"),
 			Concurrency:   2,
 			CORSOrigins:   []string{"https://mytube.elladali.com"},
@@ -108,12 +120,13 @@ func Defaults(goos, home string) Config {
 	}
 
 	return Config{
-		Bind:        ":8080",
-		StateDir:    "./data",
-		DBPath:      "./data/mytube.db",
-		DownloadDir: "./data/downloads",
-		Concurrency: 3,
-		CORSOrigins: []string{"https://mytube.elladali.com"},
+		Bind:          ":8080",
+		StateDir:      "./data",
+		DBPath:        "./data/mytube.db",
+		AnalyticsPath: "./data/analytics.sqlite",
+		DownloadDir:   "./data/downloads",
+		Concurrency:   3,
+		CORSOrigins:   []string{"https://mytube.elladali.com"},
 	}
 }
 
@@ -124,6 +137,25 @@ func (c Config) ValidateServe() error {
 	}
 	if c.CookieBrowser != "" && c.CookieFile != "" {
 		return fmt.Errorf("set only one of MYTUBE_COOKIE_BROWSER and MYTUBE_COOKIE_FILE")
+	}
+	metricsBind := strings.TrimSpace(c.MetricsBind)
+	metricsToken := strings.TrimSpace(c.MetricsToken)
+	if (metricsBind == "") != (metricsToken == "") {
+		return fmt.Errorf("set both MYTUBE_METRICS_BIND and MYTUBE_METRICS_TOKEN, or neither")
+	}
+	if metricsBind != "" {
+		if metricsToken == strings.TrimSpace(c.Token) {
+			return fmt.Errorf("MYTUBE_METRICS_TOKEN must differ from MYTUBE_TOKEN")
+		}
+		host, _, err := net.SplitHostPort(metricsBind)
+		if err != nil {
+			return fmt.Errorf("MYTUBE_METRICS_BIND must be a host:port address: %w", err)
+		}
+		ip := net.ParseIP(host)
+		if !strings.EqualFold(host, "localhost") &&
+			(ip == nil || (!ip.IsLoopback() && !ip.IsPrivate())) {
+			return fmt.Errorf("MYTUBE_METRICS_BIND must use a specific loopback or private IP address")
+		}
 	}
 	return nil
 }

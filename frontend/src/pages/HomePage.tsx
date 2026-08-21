@@ -23,6 +23,7 @@ import {
   shouldPollJobs,
 } from '../utils/jobPolling';
 import { getPlaylistPlaybackState } from '../utils/playlistPlayback';
+import { telemetry } from '../telemetry';
 import {
   clearPlaybackProgress,
   getPlaybackProgress,
@@ -172,12 +173,13 @@ function DownloadButton({ job }: { job: Job }) {
       const chunks: ArrayBuffer[] = [];
       let received = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      let readResult = await reader.read();
+      while (!readResult.done) {
+        const value = readResult.value;
         chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
         received += value.length;
         if (total > 0) setProgress(Math.round(received / total * 100));
+        readResult = await reader.read();
       }
 
       const mimeType = res.headers.get('content-type') || 'video/mp4';
@@ -255,8 +257,9 @@ function JobRow({
     setRetrying(true);
     try {
       await createJob(job.url);
+      telemetry.track('download_submitted', { outcome_code: 'retry' });
     } catch {
-      // silently fail
+      telemetry.track('download_failed', { outcome_code: 'submit_error' });
     } finally {
       setRetrying(false);
     }
@@ -624,7 +627,11 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
   const [pipHint, setPipHint] = useState('');
   const [hasSavedProgress, setHasSavedProgress] = useState(false);
   const [resumedFrom, setResumedFrom] = useState<number | null>(null);
+  const playbackStartedJobRef = useRef<number | null>(null);
+  const playbackFailurePendingRef = useRef(false);
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
+  const currentJobID = job?.id ?? null;
+  const playbackMode = playlistContext ? 'playlist' : 'standalone';
   const progressKey = job
     ? (job.url.trim() ? `url:${job.url.trim()}` : `job:${job.id}`)
     : '';
@@ -806,11 +813,55 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
     clearPlaybackProgress(progressKey);
     setHasSavedProgress(false);
     setResumedFrom(null);
+    telemetry.track('playback_started_over', {
+      playback_mode: playbackMode,
+    });
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = 0;
     video.play().catch(() => undefined);
-  }, [job, progressKey]);
+  }, [job, playbackMode, progressKey]);
+
+  useEffect(() => {
+    if (currentJobID === null) return;
+    const video = videoRef.current;
+    if (!video) return;
+    playbackStartedJobRef.current = null;
+    playbackFailurePendingRef.current = false;
+
+    const onPlaying = () => {
+      if (playbackStartedJobRef.current !== currentJobID) {
+        playbackStartedJobRef.current = currentJobID;
+        telemetry.track('video_started', { playback_mode: playbackMode });
+      }
+      if (playbackFailurePendingRef.current) {
+        playbackFailurePendingRef.current = false;
+        telemetry.track('playback_recovered', { playback_mode: playbackMode });
+      }
+    };
+    const recordFailure = (outcome: 'media_error' | 'network_stall') => {
+      if (playbackFailurePendingRef.current) return;
+      playbackFailurePendingRef.current = true;
+      telemetry.track('playback_failed', { playback_mode: playbackMode, outcome_code: outcome });
+    };
+    const onError = () => recordFailure('media_error');
+    const onStalled = () => recordFailure('network_stall');
+    const onEndedEvent = () => telemetry.track('video_completed', {
+      playback_mode: playbackMode,
+      elapsed_seconds: Number.isFinite(video.currentTime) ? Math.round(video.currentTime) : undefined,
+    });
+
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('error', onError);
+    video.addEventListener('stalled', onStalled);
+    video.addEventListener('ended', onEndedEvent);
+    return () => {
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('error', onError);
+      video.removeEventListener('stalled', onStalled);
+      video.removeEventListener('ended', onEndedEvent);
+    };
+  }, [currentJobID, playbackMode]);
 
   useEffect(() => {
     if (!job) return;
@@ -1079,10 +1130,16 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
 function SettingsModal() {
   const [apiBase, setApiBase] = useState(getApiBase);
   const [token, setToken] = useState(getToken);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => telemetry.isEnabled());
   const [saved, setSaved] = useState(false);
 
   function handleSave() {
     saveSettings(apiBase, token);
+    telemetry.setEnabled(analyticsEnabled);
+    if (analyticsEnabled) {
+      telemetry.trackOpenedOnce();
+      void telemetry.flush();
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -1116,6 +1173,20 @@ function SettingsModal() {
               placeholder="Bearer token"
             />
           </div>
+          <label className="flex items-start gap-3 rounded-md border p-3">
+            <input
+              type="checkbox"
+              checked={analyticsEnabled}
+              onChange={(event) => setAnalyticsEnabled(event.target.checked)}
+              className="mt-1 h-4 w-4"
+            />
+            <span>
+              <span className="block text-sm font-medium">Share private usage analytics</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Sends playback, playlist, and download outcomes to your Mytube server. Never sends video URLs, titles, tokens, email, or device identifiers. Turning this off deletes queued events.
+              </span>
+            </span>
+          </label>
           <Button onClick={handleSave} className="w-full">
             {saved ? '✓ Saved' : 'Save'}
           </Button>
@@ -1286,9 +1357,11 @@ export default function HomePage() {
     setError('');
     try {
       await createJob(trimmed);
+      telemetry.track('download_submitted', { outcome_code: 'new' });
       setUrl('');
       fetchJobs();
     } catch (err) {
+      telemetry.track('download_failed', { outcome_code: 'submit_error' });
       setError(String(err));
     } finally {
       setSubmitting(false);
@@ -1336,7 +1409,9 @@ export default function HomePage() {
     seekTimeRef.current = undefined;
 
     playlistStartTimeRef.current = Date.now();
+    telemetry.track('playlist_started', { playback_mode: 'playlist' });
     playlistTimerRef.current = setTimeout(() => {
+      telemetry.track('playlist_completed', { playback_mode: 'playlist', outcome_code: 'timer' });
       stopPlaylistPlayback();
     }, playlistTimer * 60 * 1000);
   }
@@ -1352,13 +1427,18 @@ export default function HomePage() {
     return true;
   }
 
-  function advancePlaylist() {
+  function advancePlaylist(reason: 'completed' | 'skipped' = 'skipped') {
     if (playlistIndex === null) return;
+
+    telemetry.track(reason === 'completed' ? 'playlist_item_completed' : 'playlist_item_skipped', {
+      playback_mode: 'playlist',
+    });
 
     if (playlistStartTimeRef.current > 0) {
       const elapsed = Date.now() - playlistStartTimeRef.current;
       const limit = playlistTimer * 60 * 1000;
       if (elapsed >= limit) {
+        telemetry.track('playlist_completed', { playback_mode: 'playlist', outcome_code: 'timer' });
         stopPlaylistPlayback();
         return;
       }
@@ -1366,6 +1446,10 @@ export default function HomePage() {
 
     const playbackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
     if (!playbackState || playbackState.nextIndex === null) {
+      telemetry.track('playlist_completed', {
+        playback_mode: 'playlist',
+        outcome_code: reason === 'completed' ? 'finished' : 'stopped',
+      });
       stopPlaylistPlayback();
       return;
     }
@@ -1377,6 +1461,7 @@ export default function HomePage() {
   function previousPlaylistItem() {
     const playbackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
     if (playbackState?.previousIndex !== null && playbackState?.previousIndex !== undefined) {
+      telemetry.track('playlist_item_skipped', { playback_mode: 'playlist', outcome_code: 'previous' });
       playPlaylistItem(playbackState.previousIndex);
     }
   }
@@ -1463,7 +1548,8 @@ export default function HomePage() {
   function handleToggleSelect(id: number) {
     setSelected(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -1514,7 +1600,7 @@ export default function HomePage() {
       ? undefined
       : playlist[playlistPlaybackState.nextIndex]?.title,
     onPrevious: playlistPlaybackState.previousIndex === null ? undefined : previousPlaylistItem,
-    onNext: playlistPlaybackState.nextIndex === null ? undefined : advancePlaylist,
+    onNext: playlistPlaybackState.nextIndex === null ? undefined : () => advancePlaylist('skipped'),
   } : undefined;
 
   return (
@@ -1820,7 +1906,7 @@ export default function HomePage() {
         job={playingJob}
         jobs={jobs}
         onClose={() => { stopPlaylistPlayback(); setPlayingJob(null); seekTimeRef.current = undefined; }}
-        onEnded={advancePlaylist}
+        onEnded={() => advancePlaylist('completed')}
         startTime={seekTimeRef.current}
         playlistContext={playlistPlayerContext}
       />

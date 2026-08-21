@@ -1,3 +1,4 @@
+import { describe, expect, test } from 'vitest';
 import { extractYouTubeUrl } from '../urlExtractor';
 
 describe('URL Extractor', () => {
@@ -68,4 +69,4 @@ describe('URL Extractor', () => {
       expect(extractYouTubeUrl(url)).toBe('dQw4w9WgXcQ');
     });
   });
-}); 
+});

@@ -138,7 +138,12 @@ class ShareViewController: UIViewController {
       ?? "https://mytubeapi.elladali.com"
     let token = keychainRead(key: kBearerToken)
       ?? defaults?.string(forKey: kBearerToken)
-      ?? "a86ff4614dc198cdaaa004e344e2ea3656a88fbd07959ead78e7c496f426cfc4"
+      ?? ""
+
+    guard !token.isEmpty else {
+      finish(success: false, message: "Open Mytube Settings and save your token first.")
+      return
+    }
 
     guard let endpoint = URL(string: "\(serverUrl)/api/jobs") else {
       finish(success: false, message: "Invalid server URL.")

@@ -45,10 +45,19 @@ type Worker struct {
 	jsRuntime     string // if set, pass --js-runtimes <runtime> to yt-dlp
 	sem           chan struct{}
 	backfillMu    sync.Mutex
+	metrics       Metrics
+}
+
+// Metrics receives bounded worker lifecycle measurements. Implementations must
+// not block downloads; nil disables worker instrumentation.
+type Metrics interface {
+	DownloadStarted()
+	DownloadFinished(outcome string, duration time.Duration)
+	DownloadFallback()
 }
 
 // New creates a new Worker.
-func New(db *sql.DB, downloadDir, ytdlpPath string, concurrency int, cookieBrowser, cookieFile, jsRuntime string) *Worker {
+func New(db *sql.DB, downloadDir, ytdlpPath string, concurrency int, cookieBrowser, cookieFile, jsRuntime string, metrics Metrics) *Worker {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -65,6 +74,7 @@ func New(db *sql.DB, downloadDir, ytdlpPath string, concurrency int, cookieBrows
 		cookieFile:    cookieFile,
 		jsRuntime:     jsRuntime,
 		sem:           make(chan struct{}, concurrency),
+		metrics:       metrics,
 	}
 }
 
@@ -156,12 +166,21 @@ func (w *Worker) poll(ctx context.Context) {
 
 func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	log.Printf("worker: starting job %d url=%s", job.ID, job.URL)
+	started := time.Now()
+	outcome := "failed"
+	if w.metrics != nil {
+		w.metrics.DownloadStarted()
+		defer func() { w.metrics.DownloadFinished(outcome, time.Since(started)) }()
+	}
 
 	outputTemplate := w.downloadDir + "/%(title).200B-%(id)s.%(ext)s"
 	result := w.runDownloadAttempt(ctx, job, outputTemplate, false)
 	combinedLog := result.log
 
 	if w.shouldRetryWithHLS(ctx, result) {
+		if w.metrics != nil {
+			w.metrics.DownloadFallback()
+		}
 		log.Printf("worker: job %d direct MP4 failed; retrying with HLS: %v", job.ID, result.err)
 		fallback := w.runDownloadAttempt(ctx, job, outputTemplate, true)
 		combinedLog += "\n--- direct MP4 failed; HLS fallback ---\n" + fallback.log
@@ -170,6 +189,9 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 
 	logTail := capLog(combinedLog)
 	if result.err != nil {
+		if ctx.Err() != nil {
+			outcome = "cancelled"
+		}
 		_ = dbpkg.SetJobFailed(w.db, job.ID, result.err.Error(), logTail)
 		log.Printf("worker: job %d failed: %v", job.ID, result.err)
 		return
@@ -188,8 +210,10 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		LogTail:      logTail,
 	})
 	if err != nil {
+		outcome = "persistence_error"
 		log.Printf("worker: set completed job %d: %v", job.ID, err)
 	} else {
+		outcome = "completed"
 		log.Printf("worker: job %d completed: %s", job.ID, result.outputFile)
 	}
 }
