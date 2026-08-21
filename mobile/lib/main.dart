@@ -740,34 +740,46 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     ),
   );
 
-  Widget _buildError() => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.cloud_off, size: 56, color: Colors.grey),
-          const SizedBox(height: 16),
-          const Text(
-            'Could not reach server',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _error!,
-            style: const TextStyle(color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
-          ),
-        ],
+  Widget _buildError() {
+    final tokenMissing = widget.api.token.trim().isEmpty;
+    final accessDenied = tokenMissing || _error!.contains('HTTP 401');
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              accessDenied ? Icons.key_off_outlined : Icons.cloud_off,
+              size: 56,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              accessDenied
+                  ? 'Server access needs setup'
+                  : 'Could not reach server',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              accessDenied
+                  ? 'Open Settings, paste the current Bearer Token, and save.'
+                  : _error!,
+              style: const TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ── Playlist page ─────────────────────────────────────────────────────────────

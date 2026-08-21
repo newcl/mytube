@@ -28,7 +28,7 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
 - [x] Add a private Mytube scrape job to the Prometheus configuration.
 - [x] Deploy Blackbox Exporter and probe the public health endpoint.
 - [x] Add origin/public availability and latency recording rules.
-- [~] Verify backend-down, tunnel-down, and public-path-down scenarios.
+- [x] Verify backend-down, tunnel-down, and public-path-down scenarios.
 - [x] Update homelab `execution-todo.md` and `handoff.md`.
 
 ## Phase 3: analytics ingestion and storage
@@ -56,17 +56,24 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
 - [x] Add an analytics preference and privacy copy.
 - [x] Test airplane-mode recovery and bounded storage.
 - [x] Document required App Store privacy responses before distribution.
-- [~] Build, sign, install, and verify on the physical iPhone.
+- [x] Build, sign, and install on the physical iPhone.
+- [!] Verify a live iPhone telemetry event after the connected phone is
+      unlocked and Mytube is opened once.
 
 ## Phase 6: dashboards and operations
 
-- [ ] Deploy Grafana OSS in `monitoring` with persistent storage.
-- [ ] Protect Grafana with Cloudflare Access.
-- [ ] Provision the Mytube Prometheus dashboard.
-- [ ] Add alerts for origin/public availability, API failures, download failures,
+- [x] Deploy Grafana OSS in `monitoring` with persistent storage.
+- [!] Protect Grafana with Cloudflare Access. The Ingress remains unapplied
+      until the owner-only Access application can be created in a signed-in
+      browser session.
+- [x] Provision the Mytube Prometheus dashboard.
+- [x] Add alerts for origin/public availability, API failures, download failures,
       and playback recovery failures.
-- [ ] Document retention, backup, restore, and telemetry troubleshooting.
-- [ ] Perform and record an end-to-end outage exercise.
+- [!] Add an external notification receiver. Alertmanager is live and receives
+      alerts internally; an external endpoint requires explicit approval or an
+      SMTP/webhook credential.
+- [x] Document retention, backup, restore, and telemetry troubleshooting.
+- [x] Perform and record an end-to-end outage exercise.
 
 ## Decisions and evidence
 
@@ -79,18 +86,22 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
 - The native metrics listener is bound only to the VMware private interface at
   `192.168.234.1:9091`; the public API remains loopback-only on
   `127.0.0.1:8081`.
-- Prometheus release revision 8 scrapes the native endpoint every 15 seconds
+- Prometheus release revision 9 scrapes the native endpoint every 15 seconds
   through a dedicated Kubernetes Secret and probes the public `/health` path
   every 30 seconds through an internal-only Blackbox Exporter.
 - The metrics credential exists only in the protected native configuration and
   Kubernetes Secret; temporary transfer and verification files were removed.
 - Both Mytube targets were verified healthy with `up=1`, `probe_success=1`, and
-  `mytube_build_info=1`. All six Mytube rules report `health=ok`.
-- Alertmanager is still intentionally disabled, so alerts are visible in
-  Prometheus but do not yet send notifications.
-- Non-disruptive authentication and live-path checks passed. Controlled origin
-  and tunnel outage exercises remain pending so this rollout did not interrupt
-  the production service.
+  `mytube_build_info=1`.
+- Prometheus revision 9 runs Alertmanager with a persistent 2 GiB PVC and a
+  Secret-mounted internal-only receiver. Prometheus reports one active
+  Alertmanager; external delivery awaits an approved destination.
+- All seven Mytube rules report `health=ok`. The alert set includes five alert
+  rules and two latency recording rules.
+- Scoped origin and public-path exercises both progressed from pending to
+  firing, appeared in Alertmanager, recovered to healthy signals, and left no
+  firewall test rules behind. The exercises blocked monitoring-pod traffic
+  only and did not interrupt the API or public tunnel.
 - Native rollback backup:
   `~/Library/Application Support/MyTube/backups/telemetry-20260821-2225/`.
 - Prometheus rollback backup:
@@ -117,8 +128,9 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
 - Metrics binding is now an optional retrying subsystem. If VMware Fusion is
   stopped and `192.168.234.1` is absent during an app restart, the API remains
   available while metrics retry every 30 seconds.
-- The frontend client is source-complete but not deployed. It uses a bounded
-  500-event local queue, 50-event batches, 30-day expiry, exponential retry,
+- The frontend client is deployed on Cloudflare Pages. The production bundle
+  contains the telemetry endpoint and bounded queue implementation. It uses a
+  bounded 500-event local queue, 50-event batches, 30-day expiry, exponential retry,
   authenticated keepalive requests, and clears queued data when disabled.
 - `sendBeacon` is intentionally not used because it cannot attach the required
   bearer authorization header. `fetch(..., {keepalive: true})` preserves both
@@ -131,11 +143,22 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
   delivery, and flushes on app lifecycle transitions. All 12 Flutter tests and
   `flutter analyze` pass.
 - The API credential previously embedded as a mobile/share-extension fallback
-  was removed from source. Existing upgrades retain the credential in Keychain;
-  fresh installs must save it in Settings.
+  was removed from source. Keychain-saved credentials survive upgrades, but
+  installations that relied only on the old compiled fallback must save the
+  token once in Settings.
 - The signed iOS 1.0.0 build was installed on the paired iPhone 13 mini. Remote
-  launch verification is pending because the CoreDevice wireless tunnel timed
-  out; unlock and one manual app launch are required to finish this gate.
+  launch and process verification succeeded after the device was unlocked.
+  Backend-event verification is waiting for the token to be saved in Settings.
+- Missing or rejected mobile credentials now produce explicit Settings/token
+  guidance instead of the misleading `Could not reach server` message. The
+  corrected signed build passed analysis/tests and was reinstalled and launched.
 - App Store disclosure guidance is recorded in
   `docs/telemetry-privacy.md`: Product Interaction data for Analytics/App
   Functionality, not linked to identity and not used for tracking.
+- Grafana chart 12.11.1 (Grafana 13.2.0) is deployed at revision 2 with a bound
+  2 GiB PVC. Its private health API is OK, its Prometheus datasource reports
+  successful queries, and the provisioned `Mytube overview` dashboard is
+  discoverable. The separate Ingress is intentionally staged behind the
+  Cloudflare Access prerequisite.
+- Operational procedures and the exercise record are in
+  `docs/telemetry-operations.md`.
