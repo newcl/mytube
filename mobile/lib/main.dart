@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'playback_progress.dart';
 import 'playlist.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -1675,6 +1676,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Duration _sessionRemaining = Duration.zero;
   bool _controlsVisible = true;
   bool _screenAwakeForPlayback = false;
+  late final PlaybackProgressStore _progressStore;
+  Duration _lastPersistedPosition = Duration.zero;
+  Duration? _resumedFrom;
+  bool _hasSavedProgress = false;
 
   // Now Playing / lock-screen controls.
   static const _nowPlayingChannel = MethodChannel('com.mytube/nowPlaying');
@@ -1697,11 +1702,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   String get _currentVideoUrl => widget.playlistMode
       ? widget.api!.fileUrl(_job.id)
       : widget.singleVideoUrl!;
+  String get _progressKey =>
+      _job.url.trim().isNotEmpty ? 'url:${_job.url.trim()}' : 'job:${_job.id}';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _progressStore = PlaybackProgressStore();
     _index = widget.initialIndex.clamp(0, widget.jobs.length - 1).toInt();
     _nowPlayingChannel.setMethodCallHandler(_handleRemoteCommand);
     _startSessionTimer();
@@ -1760,6 +1768,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       _completionHandled = false;
       _queueFinished = false;
       _controlsVisible = true;
+      _lastPersistedPosition = Duration.zero;
+      _resumedFrom = null;
+      _hasSavedProgress = false;
     });
 
     try {
@@ -1780,10 +1791,25 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         await controller.dispose();
         return;
       }
+      await _progressStore.load();
+      if (!mounted || generation != _loadGeneration) {
+        await controller.dispose();
+        return;
+      }
+      final resumedFrom = _progressStore.positionFor(
+        _progressKey,
+        controller.value.duration,
+      );
+      if (resumedFrom != null) await controller.seekTo(resumedFrom);
       _controller = controller;
       controller.addListener(_tick);
       await controller.setPlaybackSpeed(_speed);
-      setState(() => _ready = true);
+      setState(() {
+        _ready = true;
+        _resumedFrom = resumedFrom;
+        _hasSavedProgress = resumedFrom != null;
+        _lastPersistedPosition = resumedFrom ?? Duration.zero;
+      });
       if (!_sessionEnded) {
         _wasPlayingBeforeBackground = true;
         await controller.play();
@@ -1797,6 +1823,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
 
   Future<void> _changeTrack(int index) async {
     if (_changingTrack || index < 0 || index >= widget.jobs.length) return;
+    _persistCurrentProgress(force: true);
     _changingTrack = true;
     setState(() {
       _index = index;
@@ -1810,6 +1837,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void _handleTrackCompletion() {
     if (_completionHandled) return;
     _completionHandled = true;
+    _progressStore.clear(_progressKey);
+    _hasSavedProgress = false;
+    _resumedFrom = null;
     if (_hasNext && !_sessionEnded) {
       unawaited(_changeTrack(_index + 1));
     } else if (mounted) {
@@ -1885,9 +1915,46 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (isPlaying) {
       _restartControlsHideTimer();
     } else {
+      _persistCurrentProgress(force: true);
       _controlsTimer?.cancel();
       _controlsVisible = true;
     }
+  }
+
+  void _persistCurrentProgress({bool force = false}) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    final position = controller.value.position;
+    if (!force &&
+        (position - _lastPersistedPosition).abs() <
+            const Duration(seconds: 5)) {
+      return;
+    }
+    _lastPersistedPosition = position;
+    final saved = _progressStore.save(
+      _progressKey,
+      position,
+      controller.value.duration,
+    );
+    _hasSavedProgress = saved;
+    if (!saved) _resumedFrom = null;
+  }
+
+  Future<void> _startOver() async {
+    final controller = _controller;
+    if (controller == null) return;
+    _progressStore.clear(_progressKey);
+    _lastPersistedPosition = Duration.zero;
+    setState(() {
+      _hasSavedProgress = false;
+      _resumedFrom = null;
+    });
+    await controller.seekTo(Duration.zero);
+    if (!_sessionEnded && !controller.value.isPlaying) {
+      _wasPlayingBeforeBackground = true;
+      await controller.play();
+    }
+    _showControls();
   }
 
   @override
@@ -1932,6 +1999,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         value.position >= value.duration &&
         !value.isPlaying) {
       _handleTrackCompletion();
+    } else {
+      _persistCurrentProgress();
     }
     setState(() {});
     _updateNowPlaying();
@@ -1993,6 +2062,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   @override
   void dispose() {
     _loadGeneration++;
+    _persistCurrentProgress(force: true);
+    unawaited(_progressStore.flush());
     _sessionTimer?.cancel();
     _controlsTimer?.cancel();
     _setScreenAwake(false);
@@ -2540,6 +2611,17 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
                                     ),
                                   ),
                                 ),
+                                if (_hasSavedProgress)
+                                  IconButton(
+                                    tooltip: _resumedFrom == null
+                                        ? 'Start over'
+                                        : 'Start over · resumed at ${_fmt(_resumedFrom!)}',
+                                    icon: const Icon(
+                                      Icons.restart_alt,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: _startOver,
+                                  ),
                                 IconButton(
                                   tooltip: 'Video info',
                                   icon: const Icon(
@@ -2587,6 +2669,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
             iconTheme: const IconThemeData(color: Colors.white),
             actionsIconTheme: const IconThemeData(color: Colors.white),
             actions: [
+              if (_hasSavedProgress)
+                IconButton(
+                  tooltip: _resumedFrom == null
+                      ? 'Start over'
+                      : 'Start over · resumed at ${_fmt(_resumedFrom!)}',
+                  onPressed: _startOver,
+                  icon: const Icon(Icons.restart_alt),
+                ),
               IconButton(
                 tooltip: 'Video info',
                 onPressed: _showInfo,

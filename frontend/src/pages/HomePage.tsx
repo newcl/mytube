@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward } from 'lucide-react';
+import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
 import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
 import {
   fileUrl,
@@ -23,6 +23,11 @@ import {
   shouldPollJobs,
 } from '../utils/jobPolling';
 import { getPlaylistPlaybackState } from '../utils/playlistPlayback';
+import {
+  clearPlaybackProgress,
+  getPlaybackProgress,
+  savePlaybackProgress,
+} from '../utils/playbackProgress';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -617,7 +622,12 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
   const [pipActivating, setPipActivating] = useState(false);
   const [pipError, setPipError] = useState('');
   const [pipHint, setPipHint] = useState('');
+  const [hasSavedProgress, setHasSavedProgress] = useState(false);
+  const [resumedFrom, setResumedFrom] = useState<number | null>(null);
   const liveJob = job ? (jobs.find(j => j.id === job.id) ?? job) : null;
+  const progressKey = job
+    ? (job.url.trim() ? `url:${job.url.trim()}` : `job:${job.id}`)
+    : '';
   const playerOpen = job !== null;
   const isDownloading = liveJob?.status === 'downloading';
   const pct = liveJob?.progress?.percent ?? 0;
@@ -700,27 +710,107 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
   }, []);
 
   useEffect(() => {
-    if (startTime === undefined || startTime <= 0) return;
+    if (!job) return;
     const video = videoRef.current;
     if (!video) return;
+    setHasSavedProgress(false);
+    setResumedFrom(null);
+
     const seek = () => {
-      if (video.readyState >= 2) {
-        video.currentTime = startTime;
-        video.removeEventListener('loadedmetadata', seek);
-        video.removeEventListener('canplay', seek);
+      const explicitStart = startTime !== undefined && startTime > 0
+        ? startTime
+        : null;
+      const position = explicitStart
+        ?? getPlaybackProgress(progressKey, video.duration);
+      if (position !== null && position > 0) {
+        video.currentTime = Math.min(
+          position,
+          Number.isFinite(video.duration) ? video.duration : position,
+        );
+      }
+      if (explicitStart === null && position !== null) {
+        setHasSavedProgress(true);
+        setResumedFrom(position);
       }
     };
-    if (video.readyState >= 2) {
-      video.currentTime = startTime;
+    if (video.readyState >= 1) {
+      seek();
     } else {
       video.addEventListener('loadedmetadata', seek);
-      video.addEventListener('canplay', seek);
       return () => {
         video.removeEventListener('loadedmetadata', seek);
-        video.removeEventListener('canplay', seek);
       };
     }
-  }, [job, startTime]);
+  }, [job, progressKey, startTime]);
+
+  useEffect(() => {
+    if (!job) return;
+    const video = videoRef.current;
+    if (!video) return;
+    let lastPosition = video.currentTime;
+    let lastDuration = video.duration;
+    let lastPersistedPosition = lastPosition;
+    const isCurrentSource = () =>
+      video.getAttribute('src') === fileUrl(job.id);
+
+    const persist = (force = false) => {
+      if (!force && Math.abs(lastPosition - lastPersistedPosition) < 5) return;
+      lastPersistedPosition = lastPosition;
+      const saved = savePlaybackProgress(
+        progressKey,
+        lastPosition,
+        lastDuration,
+      );
+      setHasSavedProgress(saved);
+      if (!saved) setResumedFrom(null);
+    };
+    const capture = () => {
+      if (!isCurrentSource()) return;
+      lastPosition = video.currentTime;
+      lastDuration = video.duration;
+      persist();
+    };
+    const flush = () => {
+      if (!isCurrentSource()) {
+        persist(true);
+        return;
+      }
+      lastPosition = video.currentTime;
+      lastDuration = video.duration;
+      persist(true);
+    };
+    const clearCompleted = () => {
+      lastPosition = video.duration;
+      lastDuration = video.duration;
+      lastPersistedPosition = video.duration;
+      clearPlaybackProgress(progressKey);
+      setHasSavedProgress(false);
+      setResumedFrom(null);
+    };
+
+    video.addEventListener('timeupdate', capture);
+    video.addEventListener('pause', flush);
+    video.addEventListener('ended', clearCompleted);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      video.removeEventListener('timeupdate', capture);
+      video.removeEventListener('pause', flush);
+      video.removeEventListener('ended', clearCompleted);
+      window.removeEventListener('pagehide', flush);
+      persist(true);
+    };
+  }, [job, progressKey]);
+
+  const handleStartOver = useCallback(() => {
+    if (!job) return;
+    clearPlaybackProgress(progressKey);
+    setHasSavedProgress(false);
+    setResumedFrom(null);
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = 0;
+    video.play().catch(() => undefined);
+  }, [job, progressKey]);
 
   useEffect(() => {
     if (!job) return;
@@ -868,6 +958,20 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
             )}
             <p className="truncate text-sm font-medium text-white">{job.title || 'Video'}</p>
           </div>
+          {hasSavedProgress && (
+            <button
+              type="button"
+              onClick={handleStartOver}
+              className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-white/10 px-2.5 text-xs font-medium text-white transition-colors hover:bg-white/20"
+              title={resumedFrom === null
+                ? 'Clear saved progress and play from the beginning'
+                : `Resumed at ${formatTimestamp(resumedFrom)} — play from the beginning`}
+              aria-label="Clear saved progress and start over"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span className="hidden sm:inline">Start over</span>
+            </button>
+          )}
           <a
             href={job.url}
             target="_blank"
