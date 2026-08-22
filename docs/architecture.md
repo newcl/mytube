@@ -56,15 +56,18 @@ SQLite data and downloads remain external writable files:
 
 ## Authentication
 
-All `/api/*` and `/files/*` endpoints require
-`Authorization: Bearer <MYTUBE_TOKEN>`.
+The frontend is protected by Cloudflare Access and sends same-origin requests
+to a route-limited Pages Function. The Function verifies the Access assertion
+and adds the backend master token from an encrypted environment binding. The
+browser never receives or stores that token, including in media URLs.
 
-HTML5 video requests cannot attach a custom authorization header, so
-`/files/{id}` also accepts `?token=<MYTUBE_TOKEN>`. These URLs are sensitive.
-Cloudflare security controls are an additional layer and do not replace
-application authentication.
+The iOS app uses a unique device credential stored in Keychain. A signed-in web
+session creates a five-minute, one-use QR pairing code; the phone exchanges it
+directly with the API. The backend stores hashes of device credentials and the
+web UI can revoke each device independently. Master-token authentication is
+reserved for the Pages Function and trusted administration.
 
-See [adr/0001-auth-bearer-token.md](adr/0001-auth-bearer-token.md).
+See [ADR 0002](adr/0002-zero-trust-mobile-pairing.md).
 
 ## Download flow
 

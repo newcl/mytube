@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	analyticsPkg "github.com/newcl/mytube/backend/internal/analytics"
 	dbpkg "github.com/newcl/mytube/backend/internal/db"
+	deviceauthPkg "github.com/newcl/mytube/backend/internal/deviceauth"
 )
 
 // jobResponse is the public JSON shape for a job.
@@ -53,6 +54,7 @@ func toJobResponse(j *dbpkg.Job) jobResponse {
 type Handler struct {
 	DB               *sql.DB
 	Analytics        *analyticsPkg.Store
+	DeviceAuth       *deviceauthPkg.Store
 	TelemetryMetrics TelemetryRecorder
 }
 

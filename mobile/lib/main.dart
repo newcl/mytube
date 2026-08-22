@@ -12,6 +12,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'playback_progress.dart';
 import 'player_recovery.dart';
 import 'playlist.dart';
+import 'mobile_pairing.dart';
 import 'telemetry.dart';
 
 const String kStorageGroupId = 'group.com.mytube.mobile';
@@ -304,12 +305,18 @@ class _MainShellState extends State<MainShell> {
           storedUrl != 'https://api.mytube.elladali.com') {
         url = storedUrl;
       }
-      if (storedToken != null && storedToken.isNotEmpty) {
+      if (storedToken != null && storedToken.startsWith('mt_device_')) {
         token = storedToken;
+      } else if (storedToken != null && storedToken.isNotEmpty) {
+        // Remove legacy shared/admin credentials. New installs use one-time
+        // pairing and keep only a per-device revocable credential.
+        unawaited(_storage.delete(key: kKeyBearerToken));
       }
       // Persist corrected defaults back (best-effort)
       unawaited(_storage.write(key: kKeyServerUrl, value: url));
-      unawaited(_storage.write(key: kKeyBearerToken, value: token));
+      if (token.isNotEmpty) {
+        unawaited(_storage.write(key: kKeyBearerToken, value: token));
+      }
     } catch (_) {
       // Keychain unavailable or timed out — proceed with defaults
     }
@@ -764,7 +771,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             Text(
               accessDenied
-                  ? 'Open Settings, paste the current Bearer Token, and save.'
+                  ? 'Open Settings and scan a pairing code from the signed-in Mytube website.'
                   : _error!,
               style: const TextStyle(color: Colors.grey),
               textAlign: TextAlign.center,
@@ -3203,11 +3210,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _apiUrlCtrl = TextEditingController();
-  final _tokenCtrl = TextEditingController();
-  bool _tokenVisible = false;
   bool _saved = false;
   bool _analyticsEnabled = true;
+  bool _connected = false;
+  bool _pairing = false;
 
   @override
   void initState() {
@@ -3216,31 +3222,53 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _load() async {
-    final url = await widget.storage.read(key: kKeyServerUrl);
     final token = await widget.storage.read(key: kKeyBearerToken);
     final analytics = await widget.storage.read(key: telemetryEnabledKey);
     if (!mounted) return;
     setState(() {
-      _apiUrlCtrl.text = url ?? '';
-      _tokenCtrl.text = token ?? '';
+      _connected = token != null && token.startsWith('mt_device_');
       _analyticsEnabled = analytics != 'false';
     });
   }
 
   Future<void> _save() async {
-    await widget.storage.write(
-      key: kKeyServerUrl,
-      value: _apiUrlCtrl.text.trim(),
-    );
     await appTelemetry.setEnabled(_analyticsEnabled);
-    await widget.storage.write(
-      key: kKeyBearerToken,
-      value: _tokenCtrl.text.trim(),
-    );
     widget.onSaved();
     setState(() => _saved = true);
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) setState(() => _saved = false);
+  }
+
+  Future<void> _scanPairingCode() async {
+    if (_pairing) return;
+    setState(() => _pairing = true);
+    final credentials = await Navigator.of(context).push<PairingCredentials>(
+      MaterialPageRoute(builder: (_) => const MobilePairingScannerPage()),
+    );
+    if (credentials != null) {
+      await widget.storage.write(
+        key: kKeyServerUrl,
+        value: credentials.apiBase,
+      );
+      await widget.storage.write(
+        key: kKeyBearerToken,
+        value: credentials.token,
+      );
+      widget.onSaved();
+      if (mounted) {
+        setState(() => _connected = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Mytube connected securely.')),
+        );
+      }
+    }
+    if (mounted) setState(() => _pairing = false);
+  }
+
+  Future<void> _disconnect() async {
+    await widget.storage.delete(key: kKeyBearerToken);
+    widget.onSaved();
+    if (mounted) setState(() => _connected = false);
   }
 
   @override
@@ -3257,47 +3285,68 @@ class _SettingsPageState extends State<SettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Server Configuration',
+                    'Server connection',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Stored in iOS Keychain and shared with the Share Extension.',
+                    _connected
+                        ? 'Connected with a revocable device credential stored in iOS Keychain.'
+                        : 'Pair with the signed-in Mytube website. You never need to copy an API token.',
                     style: Theme.of(
                       context,
                     ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: _apiUrlCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'API URL',
-                      hintText: 'https://mytubeapi.elladali.com',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.dns),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _connected
+                          ? Colors.green.withValues(alpha: 0.12)
+                          : Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    keyboardType: TextInputType.url,
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _tokenCtrl,
-                    obscureText: !_tokenVisible,
-                    decoration: InputDecoration(
-                      labelText: 'Bearer Token',
-                      border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.key),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _tokenVisible
-                              ? Icons.visibility_off
-                              : Icons.visibility,
+                    child: Row(
+                      children: [
+                        Icon(
+                          _connected ? Icons.verified_user : Icons.link_off,
+                          color: _connected ? Colors.green : null,
                         ),
-                        onPressed: () =>
-                            setState(() => _tokenVisible = !_tokenVisible),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _connected ? 'Connected securely' : 'Not connected',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _pairing ? null : _scanPairingCode,
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: Text(
+                        _connected ? 'Pair again' : 'Scan pairing code',
+                      ),
+                    ),
+                  ),
+                  if (_connected) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        onPressed: _disconnect,
+                        icon: const Icon(Icons.link_off),
+                        label: const Text('Disconnect this device'),
+                      ),
+                    ),
+                  ],
+                  const Divider(height: 32),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: _analyticsEnabled,

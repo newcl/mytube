@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
-import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult } from '../api';
+import QRCode from 'qrcode';
+import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult, createMobilePairing, listMobileDevices, revokeMobileDevice, type MobileDevice } from '../api';
 import {
   fileUrl,
   fileZipDownloadUrl,
   getApiBase,
   getAppVersion,
   getAppVersionShort,
-  getToken,
-  saveSettings,
+  MOBILE_API_BASE,
 } from '../config';
+import { buildMobilePairingUri } from '../utils/mobilePairing';
 import { extractYouTubeUrl } from '../utils/urlExtractor';
 import {
   enterPictureInPicture,
@@ -162,7 +163,7 @@ function DownloadButton({ job }: { job: Job }) {
     setProgress(0);
     try {
       const res = await fetch(`${getApiBase()}/files/${job.id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+        credentials: 'same-origin',
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
 
@@ -1128,13 +1129,49 @@ function PlayerModal({ job, jobs, onClose, onEnded, startTime, playlistContext }
 }
 
 function SettingsModal() {
-  const [apiBase, setApiBase] = useState(getApiBase);
-  const [token, setToken] = useState(getToken);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(() => telemetry.isEnabled());
   const [saved, setSaved] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [pairingExpiresAt, setPairingExpiresAt] = useState('');
+  const [devices, setDevices] = useState<MobileDevice[]>([]);
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingError, setPairingError] = useState('');
+
+  const refreshDevices = useCallback(async () => {
+    try {
+      setDevices(await listMobileDevices());
+    } catch {
+      // Device management is supplementary and must not disrupt the app.
+    }
+  }, []);
+
+  useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+
+  async function createPairingCode() {
+    setPairingBusy(true);
+    setPairingError('');
+    try {
+      const pairing = await createMobilePairing();
+      const uri = buildMobilePairingUri(MOBILE_API_BASE, pairing.code);
+      setQrDataUrl(await QRCode.toDataURL(uri, { width: 320, margin: 1, errorCorrectionLevel: 'M' }));
+      setPairingExpiresAt(pairing.expires_at);
+    } catch {
+      setPairingError('Could not create a pairing code. Please try again.');
+    } finally {
+      setPairingBusy(false);
+    }
+  }
+
+  async function revokeDevice(id: string) {
+    try {
+      await revokeMobileDevice(id);
+      await refreshDevices();
+    } catch {
+      setPairingError('Could not revoke that device.');
+    }
+  }
 
   function handleSave() {
-    saveSettings(apiBase, token);
     telemetry.setEnabled(analyticsEnabled);
     if (analyticsEnabled) {
       telemetry.trackOpenedOnce();
@@ -1151,27 +1188,52 @@ function SettingsModal() {
           <Settings className="w-4 h-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-          <div>
-            <label className="block text-sm font-medium mb-1">API Base URL</label>
-            <Input
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder="https://mytubeapi.elladali.com"
-            />
+          <div className="rounded-md border p-4">
+            <h3 className="text-sm font-semibold">Connect the Mytube iPhone app</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Open Settings in the app and scan this one-time code. It expires after five minutes and never contains the server master token.
+            </p>
+            {qrDataUrl ? (
+              <div className="mt-3 text-center">
+                <img src={qrDataUrl} alt="One-time Mytube mobile pairing QR code" className="mx-auto w-64 rounded-md border bg-white p-2" />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Expires {new Date(pairingExpiresAt).toLocaleTimeString()}
+                </p>
+              </div>
+            ) : null}
+            {pairingError ? <p className="mt-2 text-sm text-destructive">{pairingError}</p> : null}
+            <Button variant="outline" onClick={createPairingCode} disabled={pairingBusy} className="mt-3 w-full">
+              <RefreshCw className={`mr-2 h-4 w-4 ${pairingBusy ? 'animate-spin' : ''}`} />
+              {qrDataUrl ? 'Refresh pairing code' : 'Show pairing code'}
+            </Button>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Token</label>
-            <Input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Bearer token"
-            />
+          {devices.length > 0 ? (
+            <div className="rounded-md border p-4">
+              <h3 className="text-sm font-semibold">Paired devices</h3>
+              <div className="mt-2 space-y-2">
+                {devices.map((device) => (
+                  <div key={device.id} className="flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{device.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {device.revoked_at ? 'Revoked' : `Last used ${new Date(device.last_used_at).toLocaleString()}`}
+                      </p>
+                    </div>
+                    {!device.revoked_at ? (
+                      <Button size="sm" variant="ghost" onClick={() => void revokeDevice(device.id)}>Revoke</Button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Browser access is protected by Cloudflare Zero Trust. No API credential is stored in this browser.
           </div>
           <label className="flex items-start gap-3 rounded-md border p-3">
             <input

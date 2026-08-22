@@ -21,7 +21,6 @@ function createClient(fetchImpl: typeof fetch, now = Date.now()) {
     now: () => now,
     randomID: () => `event_identifier_${++sequence}`,
     apiBase: () => 'https://api.example.test',
-    token: () => 'secret-token',
     appVersion: () => '1.0.0',
   });
   return { client, storage, sessionStorage };
@@ -63,7 +62,7 @@ describe('telemetry client', () => {
     expect(body).toContain('outcome_code');
     expect(body).not.toContain('title');
     expect(body).not.toContain('url');
-    expect(body).not.toContain('secret-token');
+    expect(init?.headers).not.toHaveProperty('Authorization');
   });
 
   it('records app opened once per tab session', () => {

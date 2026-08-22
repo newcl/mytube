@@ -1,7 +1,7 @@
 # ADR 0001 — Auth: Bearer Token
 
 **Date:** 2026-04-27  
-**Status:** Accepted
+**Status:** Superseded by [ADR 0002](0002-zero-trust-mobile-pairing.md)
 
 ## Context
 

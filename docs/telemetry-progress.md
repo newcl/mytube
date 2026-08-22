@@ -132,26 +132,26 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
   contains the telemetry endpoint and bounded queue implementation. It uses a
   bounded 500-event local queue, 50-event batches, 30-day expiry, exponential retry,
   authenticated keepalive requests, and clears queued data when disabled.
-- `sendBeacon` is intentionally not used because it cannot attach the required
-  bearer authorization header. `fetch(..., {keepalive: true})` preserves both
-  secure authentication and page-exit delivery.
-- Full frontend verification passes: 30 Vitest tests, zero-warning ESLint, and
+- `sendBeacon` is intentionally not used. Same-origin
+  `fetch(..., {keepalive: true})` lets Cloudflare Access authenticate page-exit
+  delivery through the Pages Function without exposing an API token.
+- Full frontend verification passes: 31 Vitest tests, zero-warning ESLint, and
   the production Vite build. The obsolete duplicate URL-extractor test and
   removed ESLint CLI flag were corrected during this phase.
 - Mobile telemetry uses the same 500-event/50-event-batch/30-day queue policy,
   stores its queue in the existing Keychain-backed storage, retries offline
-  delivery, and flushes on app lifecycle transitions. All 12 Flutter tests and
+  delivery, and flushes on app lifecycle transitions. All 15 Flutter tests and
   `flutter analyze` pass.
-- The API credential previously embedded as a mobile/share-extension fallback
-  was removed from source. Keychain-saved credentials survive upgrades, but
-  installations that relied only on the old compiled fallback must save the
-  token once in Settings.
+- The legacy shared mobile credential was removed. Mobile now scans a
+  five-minute, one-use QR from the Access-authenticated frontend and stores a
+  per-device revocable credential in Keychain. Legacy admin credentials are
+  deleted during migration.
 - The signed iOS 1.0.0 build was installed on the paired iPhone 13 mini. Remote
-  launch and process verification succeeded after the device was unlocked.
-  Backend-event verification is waiting for the token to be saved in Settings.
-- Missing or rejected mobile credentials now produce explicit Settings/token
-  guidance instead of the misleading `Could not reach server` message. The
-  corrected signed build passed analysis/tests and was reinstalled and launched.
+  launch and process verification succeeded. The public pairing exchange,
+  one-use protection, device access, and immediate revocation were verified;
+  the installed phone only needs the user to scan its first pairing QR.
+- Missing or rejected mobile credentials route the user to Settings and the QR
+  pairing flow instead of asking for a server token.
 - App Store disclosure guidance is recorded in
   `docs/telemetry-privacy.md`: Product Interaction data for Analytics/App
   Functionality, not linked to identity and not used for tracking.

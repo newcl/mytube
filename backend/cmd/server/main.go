@@ -23,6 +23,7 @@ import (
 	apiPkg "github.com/newcl/mytube/backend/internal/api"
 	configPkg "github.com/newcl/mytube/backend/internal/config"
 	dbPkg "github.com/newcl/mytube/backend/internal/db"
+	deviceauthPkg "github.com/newcl/mytube/backend/internal/deviceauth"
 	metricsPkg "github.com/newcl/mytube/backend/internal/metrics"
 	authPkg "github.com/newcl/mytube/backend/internal/middleware"
 	toolingPkg "github.com/newcl/mytube/backend/internal/tooling"
@@ -152,8 +153,9 @@ func serveCommand(args []string) int {
 	}
 
 	appMetrics := metricsPkg.New(buildVersion, buildCommit, buildDate)
-	handler := &apiPkg.Handler{DB: database, Analytics: analyticsStore, TelemetryMetrics: appMetrics}
-	router := buildRouter(handler, database, cfg, appMetrics)
+	deviceAuth := deviceauthPkg.NewStore(database)
+	handler := &apiPkg.Handler{DB: database, Analytics: analyticsStore, DeviceAuth: deviceAuth, TelemetryMetrics: appMetrics}
+	router := buildRouter(handler, database, deviceAuth, cfg, appMetrics)
 
 	downloadWorker := workerPkg.New(
 		database,
@@ -255,7 +257,7 @@ func serveOptionalServer(ctx context.Context, current namedServer) {
 	}
 }
 
-func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config, appMetrics *metricsPkg.Recorder) http.Handler {
+func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceauthPkg.Store, cfg configPkg.Config, appMetrics *metricsPkg.Recorder) http.Handler {
 	router := chi.NewRouter()
 	router.Use(appMetrics.HTTPMiddleware)
 	router.Use(middleware.RequestLogger(&redactingLogFormatter{
@@ -271,7 +273,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config
 	}))
 
 	router.Group(func(router chi.Router) {
-		router.Use(authPkg.BearerAuth(cfg.Token, false))
+		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth, false))
 		router.Post("/api/jobs", handler.PostJob)
 		router.Post("/api/telemetry/events", handler.PostTelemetryEvents)
 		router.Get("/api/jobs", handler.GetJobs)
@@ -283,7 +285,16 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, cfg configPkg.Config
 	})
 
 	router.Group(func(router chi.Router) {
-		router.Use(authPkg.BearerAuth(cfg.Token, true))
+		router.Use(authPkg.BearerAuth(cfg.Token, false))
+		router.Post("/api/auth/pairings", handler.PostMobilePairing)
+		router.Get("/api/auth/devices", handler.GetMobileDevices)
+		router.Delete("/api/auth/devices/{id}", handler.DeleteMobileDevice)
+	})
+
+	router.Post("/api/auth/pairings/exchange", handler.PostMobilePairingExchange)
+
+	router.Group(func(router chi.Router) {
+		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth, true))
 		router.Get("/files/{id}", apiPkg.ServeFile(database))
 	})
 

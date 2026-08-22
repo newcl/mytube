@@ -1,4 +1,4 @@
-import { getApiBase, getAppVersion, getToken } from './config';
+import { getApiBase, getAppVersion } from './config';
 
 export const TELEMETRY_ENABLED_KEY = 'mytube_analytics_enabled';
 const QUEUE_KEY = 'mytube_telemetry_queue_v1';
@@ -53,7 +53,6 @@ interface TelemetryDependencies {
   now: () => number;
   randomID: () => string;
   apiBase: () => string;
-  token: () => string;
   appVersion: () => string;
 }
 
@@ -73,7 +72,6 @@ function browserDependencies(): TelemetryDependencies {
     now: () => Date.now(),
     randomID: () => crypto.randomUUID(),
     apiBase: getApiBase,
-    token: getToken,
     appVersion: getAppVersion,
   };
 }
@@ -128,8 +126,6 @@ export class TelemetryClient {
     if (this.flushing || !this.isEnabled()) return;
     const now = this.dependencies.now();
     if (!keepalive && now < this.nextAttemptAt) return;
-    const token = this.dependencies.token();
-    if (!token) return;
     const queue = this.readQueue(now);
     if (queue.length === 0) return;
 
@@ -138,7 +134,7 @@ export class TelemetryClient {
     try {
       const response = await this.dependencies.fetch(`${this.dependencies.apiBase()}/api/telemetry/events`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schema_version: 1, events: batch }),
         keepalive,
       });

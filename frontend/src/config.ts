@@ -1,59 +1,35 @@
-export const DEFAULT_API_BASE = 'https://mytubeapi.elladali.com';
+export const DEFAULT_API_BASE = '/backend';
+export const MOBILE_API_BASE = 'https://mytubeapi.elladali.com';
 
-const LEGACY_API_BASES = new Set([
-  'https://api.mytube.elladali.com',
-  'https://mytube.elladali.com',
-]);
-
-function normalizeApiBase(apiBase: string): string {
-  const normalized = apiBase.trim().replace(/\/+$/, '');
-  return LEGACY_API_BASES.has(normalized) ? DEFAULT_API_BASE : normalized;
-}
-
-// API base URL — local settings take precedence over the build-time value.
-// Legacy production URLs are migrated automatically on first load.
+// Production API traffic stays same-origin. The Cloudflare Pages Function
+// validates the Access session and injects the server-side credential.
 export function getApiBase(): string {
-  const stored = localStorage.getItem('mytube_api_base');
-  const resolved = normalizeApiBase(
-    stored ||
-    (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-    DEFAULT_API_BASE,
-  );
-
-  if (stored !== null && stored !== resolved) {
-    localStorage.setItem('mytube_api_base', resolved);
+  localStorage.removeItem('mytube_token');
+  localStorage.removeItem('mytube_api_base');
+  if (import.meta.env.DEV) {
+    return (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || DEFAULT_API_BASE;
   }
-
-  return resolved;
-}
-
-export function getToken(): string {
-  return localStorage.getItem('mytube_token') || '';
-}
-
-export function saveSettings(apiBase: string, token: string): void {
-  localStorage.setItem('mytube_api_base', normalizeApiBase(apiBase));
-  localStorage.setItem('mytube_token', token);
+  return DEFAULT_API_BASE;
 }
 
 export function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' };
+  return { 'Content-Type': 'application/json' };
 }
 
-/** Build a file URL with token query param (for <video src>) */
+/** Same-origin URLs are authenticated by the Cloudflare Access session. */
 export function fileUrl(jobId: number): string {
-  return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}`;
+  return `${getApiBase()}/files/${jobId}`;
 }
 
 /** Build a file URL that forces browser download (no fetch/CORS needed). */
 // NOTE: kept for reference but superseded by the blob download approach in the UI.
 export function fileDownloadUrl(jobId: number): string {
-  return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&download=1`;
+  return `${getApiBase()}/files/${jobId}?download=1`;
 }
 
 /** Build a file URL that wraps video into zip for iOS download behavior. */
 export function fileZipDownloadUrl(jobId: number): string {
-  return `${getApiBase()}/files/${jobId}?token=${encodeURIComponent(getToken())}&zip=1`;
+  return `${getApiBase()}/files/${jobId}?zip=1`;
 }
 
 export function getAppVersion(): string {

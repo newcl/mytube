@@ -2,6 +2,14 @@
 
 Mytube mobile app (Flutter).
 
+## Connect to the server
+
+Open the Mytube website while signed in through Cloudflare Access, select
+**Settings → Show pairing code**, then select **Settings → Scan pairing code**
+in the iPhone app. The one-time code expires after five minutes. The resulting
+revocable device credential is stored in iOS Keychain; no server admin token is
+entered into the app.
+
 ## iOS Deploy Workflow
 
 Day-to-day install on a physical iPhone should use Flutter CLI first.

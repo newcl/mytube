@@ -118,8 +118,8 @@ firewall rules remaining.
 | 1 | 0 | Tunnel, DNS, Cloudflare edge, or public routing | Check `com.mytube.cloudflared`, watchdog logs, exact DNS record, and public health. |
 | missing | any | Prometheus scrape/config problem | Check the server pod, Secret mount, target configuration, and rule health. |
 
-For missing frontend/mobile events, first confirm analytics is enabled, the
-client has a saved API token, and `/api/telemetry/events` is reachable. Client
+For missing frontend/mobile events, first confirm analytics is enabled, the web
+Access session or mobile device pairing is valid, and `/api/telemetry/events` is reachable. Client
 queues retry transient failures, so do not clear storage until queue age/size
 and the backend response have been inspected. Use only aggregate event names,
 clients, and outcomes in Prometheus; never add URLs, titles, tokens, IDs, or

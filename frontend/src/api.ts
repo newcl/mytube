@@ -24,6 +24,19 @@ export interface Job {
   progress: Progress | null;
 }
 
+export interface MobilePairing {
+  code: string;
+  expires_at: string;
+}
+
+export interface MobileDevice {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string;
+  revoked_at?: string;
+}
+
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`${getApiBase()}${path}`, {
     ...init,
@@ -68,6 +81,23 @@ export async function getJobLog(id: number): Promise<string> {
 
 export async function deleteJob(id: number): Promise<void> {
   const res = await apiFetch(`/api/jobs/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export async function createMobilePairing(): Promise<MobilePairing> {
+  const res = await apiFetch('/api/auth/pairings', { method: 'POST' });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function listMobileDevices(): Promise<MobileDevice[]> {
+  const res = await apiFetch('/api/auth/devices');
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function revokeMobileDevice(id: string): Promise<void> {
+  const res = await apiFetch(`/api/auth/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`${res.status}`);
 }
 

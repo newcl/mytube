@@ -24,15 +24,21 @@ release path.
 
 ---
 
-## 2. Environment variables
+## 2. Cloudflare Access and secret
 
-Set these in the Cloudflare Pages dashboard under **Settings → Environment variables**:
+Create an owner-only Cloudflare Access self-hosted application covering both
+`mytube.elladali.com/*` and the project's `pages.dev` hostname. The Pages
+Function also validates the Access application audience and team issuer.
 
-| Variable | Value |
-|----------|-------|
-| `VITE_API_BASE_URL` | `https://mytubeapi.elladali.com` |
+Store the backend master token as an encrypted production secret:
 
-> The `MYTUBE_TOKEN` is **not** set as a build-time env var — it is entered by the user at runtime in the Settings panel and stored in `localStorage`.
+```bash
+npx wrangler pages secret put MYTUBE_ADMIN_TOKEN --project-name mytube
+```
+
+Do not define `VITE_API_BASE_URL` in production. Production uses the same-origin
+`/backend` Function. Never put the token in a `VITE_*` variable because Vite
+embeds those values in the public bundle.
 
 ---
 
@@ -52,6 +58,9 @@ npm install
 npm run build
 npx wrangler pages dev dist
 ```
+
+For local Function testing, provide `MYTUBE_ADMIN_TOKEN` in an ignored
+`frontend/.dev.vars` file. Never commit that file.
 
 ---
 
