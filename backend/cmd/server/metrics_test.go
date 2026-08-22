@@ -48,6 +48,27 @@ func TestMetricsRouterRequiresDedicatedBearerHeader(t *testing.T) {
 	}
 }
 
+func TestFileRouteRequiresBearerHeader(t *testing.T) {
+	const token = "api-token"
+	recorder := metricsPkg.New("test", "test", "test")
+	router := buildRouter(&apiPkg.Handler{}, nil, nil, configPkg.Config{Token: token}, recorder)
+
+	request := httptest.NewRequest(http.MethodGet, "/files/not-an-id?token="+token, nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("query token status = %d, want 401", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/files/not-an-id", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("bearer header status = %d, want 400 from invalid id", response.Code)
+	}
+}
+
 func TestMobilePairingCreatesRevocableDeviceCredential(t *testing.T) {
 	const masterToken = "admin-token"
 	database, err := dbPkg.Open(filepath.Join(t.TempDir(), "mytube.db"))

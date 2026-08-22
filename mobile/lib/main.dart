@@ -84,6 +84,7 @@ class ApiService {
     'Authorization': 'Bearer $token',
     'Content-Type': 'application/json',
   };
+  Map<String, String> get mediaHeaders => {'Authorization': 'Bearer $token'};
   Future<List<Job>> listJobs() async {
     final res = await http
         .get(Uri.parse('$baseUrl/api/jobs?limit=100'), headers: _headers)
@@ -116,8 +117,7 @@ class ApiService {
     }
   }
 
-  String fileUrl(int id) =>
-      '$baseUrl/files/$id?token=${Uri.encodeQueryComponent(token)}';
+  String fileUrl(int id) => '$baseUrl/files/$id';
 }
 
 // ── Local download manager ────────────────────────────────────────────────────
@@ -171,13 +171,13 @@ class LocalDownloadManager {
   }
 
   Future<File> download(int jobId, void Function(double) onProgress) async {
-    final url =
-        '$baseUrl/files/$jobId?token=${Uri.encodeQueryComponent(token)}';
+    final url = '$baseUrl/files/$jobId';
     final dir = await _dir();
     final file = _fileFor(dir, jobId);
     final tmpFile = File('${dir.path}/$jobId.tmp');
 
     final request = http.Request('GET', Uri.parse(url));
+    request.headers['Authorization'] = 'Bearer $token';
     final response = await request.send().timeout(const Duration(minutes: 30));
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
@@ -267,6 +267,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
   ApiService _api = ApiService(baseUrl: kDefaultApiUrl, token: kDefaultToken);
+  bool _settingsLoaded = false;
   late final PlaylistController _playlist;
   final _storage = const FlutterSecureStorage(
     iOptions: IOSOptions(
@@ -323,7 +324,10 @@ class _MainShellState extends State<MainShell> {
     if (!mounted) return;
     appTelemetry.configure(baseUrl: url, token: token);
     unawaited(appTelemetry.flush(ignoreBackoff: true));
-    setState(() => _api = ApiService(baseUrl: url, token: token));
+    setState(() {
+      _api = ApiService(baseUrl: url, token: token);
+      _settingsLoaded = true;
+    });
   }
 
   Future<void> _checkIncomingUrl() async {
@@ -361,6 +365,9 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_settingsLoaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     final pages = [
       JobsPage(api: _api, playlist: _playlist),
       PlaylistPage(api: _api, playlist: _playlist),
@@ -414,6 +421,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
+  int _refreshGeneration = 0;
 
   // Bulk-select state
   bool _selectMode = false;
@@ -516,6 +524,10 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
       oldWidget.playlist.removeListener(_playlistChanged);
       widget.playlist.addListener(_playlistChanged);
     }
+    if (oldWidget.api.baseUrl != widget.api.baseUrl ||
+        oldWidget.api.token != widget.api.token) {
+      _refresh();
+    }
   }
 
   void _playlistChanged() {
@@ -555,6 +567,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _refresh({bool silent = false}) async {
+    final generation = ++_refreshGeneration;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -563,7 +576,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     }
     try {
       final jobs = await widget.api.listJobs();
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       setState(() {
         _jobs = jobs;
         _loading = false;
@@ -571,7 +584,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
       });
       _schedulePoll();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       setState(() {
         _loading = false;
         _error = e.toString();
@@ -608,7 +621,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => VideoPlayerPage.single(
           job: job,
-          videoUrl: widget.api.fileUrl(job.id),
+          api: widget.api,
           localFile: localFile,
         ),
       ),
@@ -807,6 +820,7 @@ class _PlaylistPageState extends State<PlaylistPage>
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
+  int _refreshGeneration = 0;
 
   @override
   void initState() {
@@ -847,9 +861,10 @@ class _PlaylistPageState extends State<PlaylistPage>
   }
 
   Future<void> _refresh() async {
+    final generation = ++_refreshGeneration;
     try {
       final jobs = await widget.api.listJobs();
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       setState(() {
         _jobs = jobs;
         _loading = false;
@@ -860,7 +875,7 @@ class _PlaylistPageState extends State<PlaylistPage>
         _pollTimer = Timer(const Duration(seconds: 3), _refresh);
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       setState(() {
         _loading = false;
         _error = error.toString();
@@ -1659,7 +1674,6 @@ class VideoPlayerPage extends StatefulWidget {
     required this.initialIndex,
     required this.playlistMode,
     this.api,
-    this.singleVideoUrl,
     this.singleLocalFile,
     this.sessionMinutes,
   });
@@ -1667,7 +1681,7 @@ class VideoPlayerPage extends StatefulWidget {
   factory VideoPlayerPage.single({
     Key? key,
     required Job job,
-    required String videoUrl,
+    required ApiService api,
     File? localFile,
   }) {
     return VideoPlayerPage._(
@@ -1675,7 +1689,7 @@ class VideoPlayerPage extends StatefulWidget {
       jobs: [job],
       initialIndex: 0,
       playlistMode: false,
-      singleVideoUrl: videoUrl,
+      api: api,
       singleLocalFile: localFile,
     );
   }
@@ -1701,7 +1715,6 @@ class VideoPlayerPage extends StatefulWidget {
   final int initialIndex;
   final bool playlistMode;
   final ApiService? api;
-  final String? singleVideoUrl;
   final File? singleLocalFile;
   final int? sessionMinutes;
 
@@ -1758,9 +1771,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   Job get _job => widget.jobs[_index];
   bool get _hasPrevious => widget.playlistMode && _index > 0;
   bool get _hasNext => widget.playlistMode && _index < widget.jobs.length - 1;
-  String get _currentVideoUrl => widget.playlistMode
-      ? widget.api!.fileUrl(_job.id)
-      : widget.singleVideoUrl!;
+  String get _currentVideoUrl => widget.api!.fileUrl(_job.id);
   String get _progressKey =>
       _job.url.trim().isNotEmpty ? 'url:${_job.url.trim()}' : 'job:${_job.id}';
 
@@ -1866,6 +1877,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           ? VideoPlayerController.file(localFile, videoPlayerOptions: options)
           : VideoPlayerController.networkUrl(
               Uri.parse(_currentVideoUrl),
+              httpHeaders: widget.api!.mediaHeaders,
               videoPlayerOptions: options,
             );
       final controller = candidate;

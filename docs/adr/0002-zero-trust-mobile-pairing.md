@@ -29,10 +29,15 @@ The frontend is already protected by a single-user Cloudflare Access policy.
 - The backend master token remains valid for trusted services and management
   routes. Device tokens can use application and file routes but cannot create
   pairings or manage devices.
+- All API and media credentials are sent only in the `Authorization` header.
+  Query-string authentication is rejected. Flutter playback and offline media
+  downloads attach the device bearer header without placing it in the URL.
 
 ## Consequences
 
 - Compromise or loss of one phone no longer requires rotating every client.
+- Browser history, proxy logs, and Cloudflare Tunnel errors no longer receive
+  bearer credentials through media URLs.
 - Access policy changes immediately affect the browser and pairing UI.
 - Pages must have the encrypted `MYTUBE_ADMIN_TOKEN` secret, and both the custom
   domain and `pages.dev` hostname must remain covered by Cloudflare Access.

@@ -273,7 +273,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceau
 	}))
 
 	router.Group(func(router chi.Router) {
-		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth, false))
+		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth))
 		router.Post("/api/jobs", handler.PostJob)
 		router.Post("/api/telemetry/events", handler.PostTelemetryEvents)
 		router.Get("/api/jobs", handler.GetJobs)
@@ -285,7 +285,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceau
 	})
 
 	router.Group(func(router chi.Router) {
-		router.Use(authPkg.BearerAuth(cfg.Token, false))
+		router.Use(authPkg.BearerAuth(cfg.Token))
 		router.Post("/api/auth/pairings", handler.PostMobilePairing)
 		router.Get("/api/auth/devices", handler.GetMobileDevices)
 		router.Delete("/api/auth/devices/{id}", handler.DeleteMobileDevice)
@@ -294,7 +294,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceau
 	router.Post("/api/auth/pairings/exchange", handler.PostMobilePairingExchange)
 
 	router.Group(func(router chi.Router) {
-		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth, true))
+		router.Use(authPkg.APIBearerAuth(cfg.Token, deviceAuth))
 		router.Get("/files/{id}", apiPkg.ServeFile(database))
 	})
 
@@ -307,13 +307,13 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceau
 
 func buildMetricsRouter(metricsHandler http.Handler, token string) http.Handler {
 	router := chi.NewRouter()
-	router.Use(authPkg.BearerAuth(token, false))
+	router.Use(authPkg.BearerAuth(token))
 	router.Get("/metrics", metricsHandler.ServeHTTP)
 	return router
 }
 
-// redactingLogFormatter keeps query-string authentication available to the
-// file handler without writing the credential into persistent access logs.
+// redactingLogFormatter is defense in depth for stale clients or malformed
+// requests. Authentication credentials are not accepted from query strings.
 type redactingLogFormatter struct {
 	delegate middleware.LogFormatter
 }

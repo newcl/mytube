@@ -8,7 +8,8 @@ Open the Mytube website while signed in through Cloudflare Access, select
 **Settings → Show pairing code**, then select **Settings → Scan pairing code**
 in the iPhone app. The one-time code expires after five minutes. The resulting
 revocable device credential is stored in iOS Keychain; no server admin token is
-entered into the app.
+entered into the app. API, playback, and offline-download requests send that
+credential only in the `Authorization` header; media URLs never contain it.
 
 ## iOS Deploy Workflow
 

@@ -61,10 +61,11 @@ Or press ▶ in Xcode with your iPhone connected.
 ## First-time app configuration
 
 1. Open **MyTube** on your iPhone
-2. Go to **Settings** tab
-3. Enter your server URL: `https://your-server.example.com`
-4. Enter your Bearer token (from your `.env` / server config)
-5. Tap **Save Settings**
+2. Open the signed-in MyTube website and choose **Settings → Show pairing code**
+3. In the app, choose **Settings → Scan pairing code**
+4. Scan the code before its five-minute expiry
+5. The resulting revocable device credential is stored in the shared iOS
+   Keychain and is never placed in a request URL
 
 ---
 
