@@ -57,16 +57,14 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
 - [x] Test airplane-mode recovery and bounded storage.
 - [x] Document required App Store privacy responses before distribution.
 - [x] Build, sign, and install on the physical iPhone.
-- [!] Verify a live iPhone telemetry event after the connected phone is
-      unlocked and Mytube is opened once.
+- [x] Verify live iPhone app-open and video-start telemetry in Prometheus.
 
 ## Phase 6: dashboards and operations
 
 - [x] Deploy Grafana OSS in `monitoring` with persistent storage.
-- [!] Protect Grafana with Cloudflare Access. The Ingress remains unapplied
-      until the owner-only Access application can be created in a signed-in
-      browser session.
-- [x] Provision the Mytube Prometheus dashboard.
+- [x] Protect Grafana with owner-only Cloudflare Access and publish its Ingress.
+- [x] Provision a unified Mytube dashboard for frontend, backend, mobile,
+      playlist, playback-recovery, download, and telemetry-pipeline metrics.
 - [x] Add alerts for origin/public availability, API failures, download failures,
       and playback recovery failures.
 - [!] Add an external notification receiver. Alertmanager is live and receives
@@ -156,9 +154,11 @@ Legend: `[ ]` pending, `[~]` in progress, `[x]` complete, `[!]` blocked.
   `docs/telemetry-privacy.md`: Product Interaction data for Analytics/App
   Functionality, not linked to identity and not used for tracking.
 - Grafana chart 12.11.1 (Grafana 13.2.0) is deployed at revision 2 with a bound
-  2 GiB PVC. Its private health API is OK, its Prometheus datasource reports
-  successful queries, and the provisioned `Mytube overview` dashboard is
-  discoverable. The separate Ingress is intentionally staged behind the
-  Cloudflare Access prerequisite.
+  2 GiB PVC and an owner-only Cloudflare Access-protected Ingress. Dashboard
+  version 2, `Mytube: frontend, backend & mobile`, has 27 panels across client
+  experience, backend/API, downloads, and telemetry delivery; all 26 PromQL
+  expressions were accepted by the live Prometheus API before deployment.
+- Live Prometheus data includes frontend `app_opened` and iOS `app_opened` plus
+  `video_started`, confirming successful telemetry delivery from both clients.
 - Operational procedures and the exercise record are in
   `docs/telemetry-operations.md`.
