@@ -15,7 +15,7 @@ import 'playlist.dart';
 import 'mobile_pairing.dart';
 import 'telemetry.dart';
 
-const String kStorageGroupId = 'group.com.mytube.mobile';
+const String kKeychainAccessGroup = 'E9PT7FP7N6.com.mytube.mytubeMobile';
 const String kKeyServerUrl = 'mytube_server_url';
 const String kKeyBearerToken = 'mytube_bearer_token';
 const String kDefaultApiUrl = 'https://mytubeapi.elladali.com';
@@ -215,7 +215,7 @@ void main() async {
   const bootstrapStorage = FlutterSecureStorage(
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock,
-      groupId: 'com.mytube.mytubeMobile',
+      groupId: kKeychainAccessGroup,
     ),
   );
   appTelemetry = MobileTelemetry(
@@ -271,7 +271,7 @@ class _MainShellState extends State<MainShell> {
   final _storage = const FlutterSecureStorage(
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock,
-      groupId: 'com.mytube.mytubeMobile',
+      groupId: kKeychainAccessGroup,
     ),
   );
 
@@ -3203,7 +3203,7 @@ class _SubmitPageState extends State<SubmitPage> {
 
 class SettingsPage extends StatefulWidget {
   final FlutterSecureStorage storage;
-  final VoidCallback onSaved;
+  final Future<void> Function() onSaved;
   const SettingsPage({super.key, required this.storage, required this.onSaved});
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -3214,6 +3214,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _analyticsEnabled = true;
   bool _connected = false;
   bool _pairing = false;
+  String? _connectionError;
 
   @override
   void initState() {
@@ -3233,7 +3234,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _save() async {
     await appTelemetry.setEnabled(_analyticsEnabled);
-    widget.onSaved();
+    await widget.onSaved();
     setState(() => _saved = true);
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) setState(() => _saved = false);
@@ -3241,11 +3242,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _scanPairingCode() async {
     if (_pairing) return;
-    setState(() => _pairing = true);
-    final credentials = await Navigator.of(context).push<PairingCredentials>(
-      MaterialPageRoute(builder: (_) => const MobilePairingScannerPage()),
-    );
-    if (credentials != null) {
+    setState(() {
+      _pairing = true;
+      _connectionError = null;
+    });
+    try {
+      final credentials = await Navigator.of(context).push<PairingCredentials>(
+        MaterialPageRoute(builder: (_) => const MobilePairingScannerPage()),
+      );
+      if (credentials == null) return;
       await widget.storage.write(
         key: kKeyServerUrl,
         value: credentials.apiBase,
@@ -3254,20 +3259,33 @@ class _SettingsPageState extends State<SettingsPage> {
         key: kKeyBearerToken,
         value: credentials.token,
       );
-      widget.onSaved();
+      final savedToken = await widget.storage.read(key: kKeyBearerToken);
+      if (savedToken != credentials.token) {
+        throw StateError('Keychain verification failed');
+      }
+      await widget.onSaved();
       if (mounted) {
         setState(() => _connected = true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Mytube connected securely.')),
         );
       }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _connected = false;
+          _connectionError =
+              'Pairing succeeded, but the secure device credential could not be saved. Please try again.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _pairing = false);
     }
-    if (mounted) setState(() => _pairing = false);
   }
 
   Future<void> _disconnect() async {
     await widget.storage.delete(key: kKeyBearerToken);
-    widget.onSaved();
+    await widget.onSaved();
     if (mounted) setState(() => _connected = false);
   }
 
@@ -3297,6 +3315,15 @@ class _SettingsPageState extends State<SettingsPage> {
                       context,
                     ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                   ),
+                  if (_connectionError != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _connectionError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),

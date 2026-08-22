@@ -191,7 +191,7 @@ class ShareViewController: UIViewController {
       kSecClass:           kSecClassGenericPassword,
       kSecAttrService:     "flutter_secure_storage_service",
       kSecAttrAccount:     key,
-      kSecAttrAccessGroup: "com.mytube.mytubeMobile",
+      kSecAttrAccessGroup: "E9PT7FP7N6.com.mytube.mytubeMobile",
       kSecReturnData:      true,
       kSecMatchLimit:      kSecMatchLimitOne,
     ]
