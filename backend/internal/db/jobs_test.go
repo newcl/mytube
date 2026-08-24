@@ -41,6 +41,64 @@ func TestCreateAndGetJob(t *testing.T) {
 	}
 }
 
+func TestFindActiveJobByURLNormalizesYouTubeVideoID(t *testing.T) {
+	database := openTestDB(t)
+
+	id, err := dbPkg.CreateJob(database, "https://youtu.be/abc123?si=tracking")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, candidate := range []string{
+		"https://www.youtube.com/watch?v=abc123",
+		"https://m.youtube.com/shorts/abc123?feature=share",
+		"https://music.youtube.com/watch?v=abc123&list=playlist",
+	} {
+		got, err := dbPkg.FindActiveJobByURL(database, candidate)
+		if err != nil {
+			t.Fatalf("find %q: %v", candidate, err)
+		}
+		if got != id {
+			t.Errorf("find %q = %d, want %d", candidate, got, id)
+		}
+	}
+
+	got, err := dbPkg.FindActiveJobByURL(database, "https://www.youtube.com/watch?v=different")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 0 {
+		t.Fatalf("different video matched job %d", got)
+	}
+}
+
+func TestDeleteJobPreservesSharedOutputUntilLastReference(t *testing.T) {
+	database := openTestDB(t)
+	first, _ := dbPkg.CreateJob(database, "https://example.com/first")
+	second, _ := dbPkg.CreateJob(database, "https://example.com/second")
+	for _, id := range []int64{first, second} {
+		if err := dbPkg.SetJobCompleted(database, id, dbPkg.CompletedFields{OutputPath: "/data/shared.mp4"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	path, err := dbPkg.DeleteJob(database, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "" {
+		t.Fatalf("shared output should be preserved, got delete path %q", path)
+	}
+
+	path, err = dbPkg.DeleteJob(database, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/data/shared.mp4" {
+		t.Fatalf("last reference returned %q", path)
+	}
+}
+
 func TestListJobs(t *testing.T) {
 	db := openTestDB(t)
 

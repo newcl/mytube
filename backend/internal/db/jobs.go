@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -47,18 +48,79 @@ type Job struct {
 	LogTail          string    `json:"-"` // served separately
 }
 
-// FindActiveJobByURL returns the ID of an existing job for the given URL that
-// is queued, downloading, or completed. Returns 0 if none exists.
-func FindActiveJobByURL(db *sql.DB, url string) (int64, error) {
+// FindActiveJobByURL returns the ID of an existing job for the same source that
+// is queued, downloading, or completed. YouTube URLs are compared by video ID
+// so alternate hosts and tracking parameters do not create duplicate files.
+// Returns 0 if none exists.
+func FindActiveJobByURL(db *sql.DB, rawURL string) (int64, error) {
 	var id int64
 	err := db.QueryRow(
 		`SELECT id FROM jobs WHERE url = ? AND status IN ('queued','downloading','completed') ORDER BY id DESC LIMIT 1`,
-		url,
+		rawURL,
 	).Scan(&id)
-	if err == sql.ErrNoRows {
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+
+	wantedVideoID, ok := youtubeVideoID(rawURL)
+	if !ok {
 		return 0, nil
 	}
-	return id, err
+
+	rows, err := db.Query(
+		`SELECT id, url FROM jobs WHERE status IN ('queued','downloading','completed') ORDER BY id DESC`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var candidateID int64
+		var candidateURL string
+		if err := rows.Scan(&candidateID, &candidateURL); err != nil {
+			return 0, err
+		}
+		if candidateVideoID, ok := youtubeVideoID(candidateURL); ok && candidateVideoID == wantedVideoID {
+			return candidateID, nil
+		}
+	}
+	return 0, rows.Err()
+}
+
+func youtubeVideoID(rawURL string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	host = strings.TrimPrefix(host, "m.")
+	host = strings.TrimPrefix(host, "music.")
+
+	if host == "youtu.be" {
+		id := strings.SplitN(strings.Trim(parsed.EscapedPath(), "/"), "/", 2)[0]
+		if decoded, err := url.PathUnescape(id); err == nil {
+			id = decoded
+		}
+		return id, id != ""
+	}
+	if host != "youtube.com" {
+		return "", false
+	}
+
+	if id := parsed.Query().Get("v"); id != "" {
+		return id, true
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) == 2 && (parts[0] == "shorts" || parts[0] == "embed" || parts[0] == "live") && parts[1] != "" {
+		return parts[1], true
+	}
+	return "", false
 }
 
 // CreateJob inserts a new queued job and returns its ID.
@@ -250,16 +312,40 @@ func UpdateJobProgress(db *sql.DB, id int64, p *Progress) error {
 	return err
 }
 
-// DeleteJob removes a job row and returns its output_path so the caller can delete the file.
+// DeleteJob removes a job row and returns its output_path so the caller can
+// delete the file. It returns an empty path when another job still references
+// the same file.
 // Returns sql.ErrNoRows if the job does not exist.
 func DeleteJob(db *sql.DB, id int64) (string, error) {
-	var path sql.NullString
-	err := db.QueryRow(`SELECT output_path FROM jobs WHERE id = ?`, id).Scan(&path)
+	tx, err := db.Begin()
 	if err != nil {
 		return "", err
 	}
-	_, err = db.Exec(`DELETE FROM jobs WHERE id = ?`, id)
-	return path.String, err
+	defer tx.Rollback()
+
+	var path sql.NullString
+	err = tx.QueryRow(`SELECT output_path FROM jobs WHERE id = ?`, id).Scan(&path)
+	if err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec(`DELETE FROM jobs WHERE id = ?`, id); err != nil {
+		return "", err
+	}
+
+	deletePath := path.String
+	if deletePath != "" {
+		var references int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM jobs WHERE output_path = ?`, deletePath).Scan(&references); err != nil {
+			return "", err
+		}
+		if references > 0 {
+			deletePath = ""
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return deletePath, nil
 }
 
 // DequeueJobs returns up to n queued jobs and atomically marks them as downloading.
