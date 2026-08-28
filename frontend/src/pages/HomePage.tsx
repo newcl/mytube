@@ -228,6 +228,7 @@ function JobRow({
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const isActive = job.status === 'queued' || job.status === 'downloading';
   const videoDuration = formatDuration(job.duration_seconds ?? 0);
   const [playlistFeedback, setPlaylistFeedback] = useState<'added' | 'already' | null>(null);
   const playlistFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -241,6 +242,7 @@ function JobRow({
   }, []);
 
   async function handleDelete() {
+    if (isActive) return;
     setDeleting(true);
     try {
       await deleteJob(job.id);
@@ -405,23 +407,47 @@ function JobRow({
                     {isInPlaylist ? 'Added' : playlistFeedback === 'added' ? 'Added' : playlistFeedback === 'already' ? 'In list' : 'Add'}
                   </Button>
                 )}
-                {job.status === 'failed' && (
-                  <Button
-                    size="sm"
-                    className="h-7 w-7 p-0 bg-emerald-500/30 text-emerald-300 hover:bg-emerald-500/60 hover:text-white backdrop-blur"
-                    disabled={retrying}
-                    onClick={(e) => { e.stopPropagation(); handleRetry(); }}
-                    title="Retry download"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />
-                  </Button>
+                {job.status !== 'completed' && (
+                  <>
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/20 text-white hover:bg-white/40 backdrop-blur"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Open original URL"
+                      aria-label="Open source"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <Button
+                      size="sm"
+                      className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-white/40 backdrop-blur"
+                      onClick={(e) => { e.stopPropagation(); handleCopyUrl(); }}
+                      title="Copy source URL"
+                      aria-label="Copy source URL"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                    {job.status === 'failed' && (
+                      <Button
+                        size="sm"
+                        className="h-7 w-7 p-0 bg-emerald-500/30 text-emerald-300 hover:bg-emerald-500/60 hover:text-white backdrop-blur"
+                        disabled={retrying}
+                        onClick={(e) => { e.stopPropagation(); handleRetry(); }}
+                        title="Retry download"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />
+                      </Button>
+                    )}
+                  </>
                 )}
                 <Button
                   size="sm"
-                  className="h-7 w-7 p-0 bg-white/20 text-white hover:bg-red-500/80 hover:text-white backdrop-blur"
-                  disabled={deleting}
+                  className={`h-7 w-7 p-0 bg-white/20 text-white hover:bg-red-500/80 hover:text-white backdrop-blur ${isActive ? 'opacity-40' : ''}`}
+                  disabled={deleting || isActive}
                   onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-                  title="Delete"
+                  title={isActive ? 'Wait for the download to finish before deleting' : 'Delete'}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -543,19 +569,35 @@ function JobRow({
                       {isInPlaylist ? '✓ Added' : playlistFeedback === 'added' ? '✓ Added' : playlistFeedback === 'already' ? 'In playlist' : '+ Playlist'}
                     </Button>
                   )}
-                  {job.status === 'failed' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-emerald-600 hover:bg-emerald-500 hover:text-white"
-                      disabled={retrying}
-                      onClick={handleRetry}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 mr-1 ${retrying ? 'animate-spin' : ''}`} />
-                      {retrying ? '…' : 'Retry'}
-                    </Button>
+                  {job.status !== 'completed' && (
+                    <>
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md text-xs font-medium border border-input bg-background px-3 h-8 hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> Source
+                      </a>
+                      <Button size="sm" variant="outline" onClick={handleCopyUrl}>
+                        <Copy className="w-3.5 h-3.5 mr-1" /> Copy URL
+                      </Button>
+                      {job.status === 'failed' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-emerald-600 hover:bg-emerald-500 hover:text-white"
+                          disabled={retrying}
+                          onClick={handleRetry}
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 mr-1 ${retrying ? 'animate-spin' : ''}`} />
+                          {retrying ? '…' : 'Retry'}
+                        </Button>
+                      )}
+                    </>
                   )}
-                  <Button size="sm" variant="outline" disabled={deleting} onClick={handleDelete}
+                  <Button size="sm" variant="outline" disabled={deleting || isActive} onClick={handleDelete}
+                    title={isActive ? 'Wait for the download to finish before deleting' : 'Delete'}
                     className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
                   >
                     <Trash2 className="w-3.5 h-3.5 mr-1" />
@@ -1608,6 +1650,8 @@ export default function HomePage() {
   }
 
   function handleToggleSelect(id: number) {
+    const job = jobs.find(item => item.id === id);
+    if (!job || job.status === 'queued' || job.status === 'downloading') return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1620,7 +1664,14 @@ export default function HomePage() {
     if (selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} selected video${selected.size !== 1 ? 's' : ''}?`)) return;
     setBulkDeleting(true);
-    const ids = Array.from(selected);
+    const ids = Array.from(selected).filter(id => {
+      const job = jobs.find(item => item.id === id);
+      return job && job.status !== 'queued' && job.status !== 'downloading';
+    });
+    if (ids.length === 0) {
+      exitSelectMode();
+      return;
+    }
     await Promise.all(ids.map(id => deleteJob(id).catch(() => {})));
     setJobs(prev => prev.filter(j => !ids.includes(j.id)));
     exitSelectMode();
@@ -1632,7 +1683,11 @@ export default function HomePage() {
     // Add 1 day to make the date inclusive (delete on or before the chosen day)
     const cutoff = new Date(beforeDate);
     cutoff.setDate(cutoff.getDate() + 1);
-    const toDelete = jobs.filter(j => new Date(j.created_at) < cutoff);
+    const toDelete = jobs.filter(j =>
+      j.status !== 'queued' &&
+      j.status !== 'downloading' &&
+      new Date(j.created_at) < cutoff
+    );
     if (toDelete.length === 0) {
       alert('No videos found on or before that date.');
       return;
@@ -1753,7 +1808,11 @@ export default function HomePage() {
         ) : (
           <div className="flex flex-wrap gap-1.5 mb-4">
             <Button size="sm" variant="outline"
-              onClick={() => setSelected(new Set(jobs.map(j => j.id)))}>
+              onClick={() => setSelected(new Set(
+                jobs
+                  .filter(j => j.status !== 'queued' && j.status !== 'downloading')
+                  .map(j => j.id)
+              ))}>
               Select All
             </Button>
             <Button size="sm" variant="outline"
@@ -1855,8 +1914,8 @@ export default function HomePage() {
               onDeleted={(id) => setJobs(prev => prev.filter(j => j.id !== id))}
               onAddToPlaylist={handleAddJobToPlaylist}
               isInPlaylist={playlist.some((item) => item.jobId === j.id || item.url === j.url)}
-              selectMode={selectMode}
-              selected={selected.has(j.id)}
+              selectMode={selectMode && j.status !== 'queued' && j.status !== 'downloading'}
+              selected={selected.has(j.id) && j.status !== 'queued' && j.status !== 'downloading'}
               onToggleSelect={() => handleToggleSelect(j.id)}
             />
           ))

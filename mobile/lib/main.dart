@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -430,6 +431,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   // Local offline downloads
   final Set<int> _locallyDownloaded = {};
   final Map<int, double> _downloading = {};
+  final Set<int> _retrying = {};
   LocalDownloadManager get _dlManager => LocalDownloadManager(
     baseUrl: widget.api.baseUrl,
     token: widget.api.token,
@@ -614,6 +616,37 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _retry(Job job) async {
+    if (job.url.isEmpty || _retrying.contains(job.id)) return;
+    setState(() => _retrying.add(job.id));
+    try {
+      final id = await widget.api.createJob(job.url);
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Retry queued as job #$id'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      await _refresh(silent: true);
+    } catch (e) {
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Retry failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _retrying.remove(job.id));
+    }
+  }
+
   Future<void> _play(Job job) async {
     final localFile = await _dlManager.getLocalFile(job.id);
     if (!mounted) return;
@@ -670,7 +703,12 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final allSelected = _jobs.isNotEmpty && _selected.length == _jobs.length;
+    final selectableIds = _jobs
+        .where((job) => !job.isActive)
+        .map((job) => job.id)
+        .toSet();
+    final allSelected =
+        selectableIds.isNotEmpty && selectableIds.difference(_selected).isEmpty;
     return Scaffold(
       appBar: _selectMode
           ? AppBar(
@@ -688,7 +726,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                       _selected.clear();
                       _selectMode = false;
                     } else {
-                      _selected.addAll(_jobs.map((j) => j.id));
+                      _selected.addAll(selectableIds);
                     }
                   }),
                 ),
@@ -715,10 +753,15 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                   job: _jobs[i],
                   onDelete: () => _delete(_jobs[i]),
                   onPlay: _selectMode ? null : () => _play(_jobs[i]),
-                  selectMode: _selectMode,
-                  selected: _selected.contains(_jobs[i].id),
-                  onLongPress: () => _enterSelectMode(_jobs[i].id),
-                  onToggleSelect: () => _toggleSelect(_jobs[i].id),
+                  selectMode: _selectMode && !_jobs[i].isActive,
+                  selected:
+                      !_jobs[i].isActive && _selected.contains(_jobs[i].id),
+                  onLongPress: _jobs[i].isActive
+                      ? () {}
+                      : () => _enterSelectMode(_jobs[i].id),
+                  onToggleSelect: _jobs[i].isActive
+                      ? () {}
+                      : () => _toggleSelect(_jobs[i].id),
                   isLocallyDownloaded: _locallyDownloaded.contains(_jobs[i].id),
                   downloadingProgress: _downloading[_jobs[i].id],
                   onDownloadToPhone: _selectMode
@@ -731,6 +774,8 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                   onAddToPlaylist: _selectMode
                       ? null
                       : () => _addToPlaylist(_jobs[i]),
+                  retrying: _retrying.contains(_jobs[i].id),
+                  onRetry: _selectMode ? null : () => _retry(_jobs[i]),
                 ),
               ),
             ),
@@ -1344,6 +1389,8 @@ class _JobCard extends StatelessWidget {
   final VoidCallback? onDownloadToPhone;
   final bool isInPlaylist;
   final VoidCallback? onAddToPlaylist;
+  final bool retrying;
+  final VoidCallback? onRetry;
   const _JobCard({
     required this.job,
     required this.onDelete,
@@ -1357,6 +1404,8 @@ class _JobCard extends StatelessWidget {
     required this.onDownloadToPhone,
     required this.isInPlaylist,
     required this.onAddToPlaylist,
+    required this.retrying,
+    required this.onRetry,
   });
 
   Color _statusColor(BuildContext context) {
@@ -1367,6 +1416,41 @@ class _JobCard extends StatelessWidget {
       'downloading' => cs.primary,
       _ => Colors.orange,
     };
+  }
+
+  void _copySource(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: job.url));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Source URL copied'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _openSource(BuildContext context) async {
+    final uri = Uri.tryParse(job.url);
+    final messenger = ScaffoldMessenger.of(context);
+    if (uri == null || !uri.hasScheme) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Source URL is unavailable')),
+      );
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && context.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not open source URL')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not open source URL')),
+        );
+      }
+    }
   }
 
   @override
@@ -1584,6 +1668,41 @@ class _JobCard extends StatelessWidget {
                 ],
               ),
             ],
+            if ((job.isActive || job.status == 'failed') && !selectMode) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: job.url.isEmpty
+                        ? null
+                        : () => _openSource(context),
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Open source'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: job.url.isEmpty
+                        ? null
+                        : () => _copySource(context),
+                    icon: const Icon(Icons.content_copy, size: 18),
+                    label: const Text('Copy URL'),
+                  ),
+                  if (job.status == 'failed')
+                    FilledButton.tonalIcon(
+                      onPressed: retrying ? null : onRetry,
+                      icon: retrying
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh, size: 18),
+                      label: Text(retrying ? 'Retrying…' : 'Retry'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1597,6 +1716,10 @@ class _JobCard extends StatelessWidget {
         child: card,
       );
     }
+
+    // Deleting an active database row does not cancel its yt-dlp subprocess.
+    // Keep the card non-destructive until the backend has a real cancel API.
+    if (job.isActive) return card;
 
     // Normal mode: swipe to delete, long-press to enter select mode
     return Dismissible(

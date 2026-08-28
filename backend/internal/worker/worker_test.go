@@ -9,7 +9,7 @@ import (
 
 func TestDownloadArgsPreferImmediateDirectMP4WithBrowserCookies(t *testing.T) {
 	worker := &Worker{cookieBrowser: "chrome", jsRuntime: "deno"}
-	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", false)
+	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", downloadModeDirect)
 
 	assertArgPair(t, args, "--format", directFirstFormat)
 	assertArgPair(t, args, "--cookies-from-browser", "chrome")
@@ -24,7 +24,7 @@ func TestDownloadArgsPreferImmediateDirectMP4WithBrowserCookies(t *testing.T) {
 
 func TestDownloadArgsUseHLSForBrowserCookieFallback(t *testing.T) {
 	worker := &Worker{cookieBrowser: "chrome", jsRuntime: "deno"}
-	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", true)
+	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", downloadModeHLSSafari)
 
 	assertArg(t, args, "--force-overwrites")
 	assertArgPair(t, args, "--extractor-args", "youtube:player_client=web_safari")
@@ -34,13 +34,28 @@ func TestDownloadArgsUseHLSForBrowserCookieFallback(t *testing.T) {
 
 func TestDownloadArgsRetainHLSFirstForCookieFile(t *testing.T) {
 	worker := &Worker{cookieFile: "/tmp/cookies.txt", jsRuntime: "node"}
-	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", false)
+	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", downloadModeDirect)
 
 	assertArgPair(t, args, "--extractor-args", "youtube:player_client=web_safari")
 	assertArgPair(t, args, "--format", hlsFirstFormat)
 	assertArgPair(t, args, "--cookies", "/tmp/cookies.txt")
 	if slices.Contains(args, "--check-formats") {
 		t.Fatal("cookie-file download unexpectedly enables direct-format probing")
+	}
+}
+
+func TestDownloadArgsUseCookieFreePublicClientForFinalFallback(t *testing.T) {
+	worker := &Worker{cookieBrowser: "chrome", jsRuntime: "deno"}
+	args := worker.downloadArgs("/tmp/%(id)s.%(ext)s", "https://example.test/video", downloadModePublicDirect)
+
+	assertArg(t, args, "--force-overwrites")
+	assertArgPair(t, args, "--format", publicDASHFormat)
+	assertArgPair(t, args, "--merge-output-format", "mp4")
+	if slices.Contains(args, "--cookies-from-browser") {
+		t.Fatal("public-client fallback unexpectedly includes browser cookies")
+	}
+	if slices.Contains(args, "youtube:player_client=web_safari") {
+		t.Fatal("public-client fallback unexpectedly forces web_safari")
 	}
 }
 
@@ -69,6 +84,28 @@ func TestShouldNotRetryFailedHLSOrCancelledDownload(t *testing.T) {
 		formatID: "18",
 	}) {
 		t.Fatal("a cancelled download should not trigger HLS fallback")
+	}
+}
+
+func TestShouldRetryImagesOnlyHLSWithoutBrowserCookies(t *testing.T) {
+	worker := &Worker{cookieBrowser: "chrome"}
+	result := downloadAttemptResult{
+		err: errors.New("exit status 1"),
+		log: "WARNING: Only images are available for download\n" +
+			"ERROR: Requested format is not available",
+	}
+
+	if !worker.shouldRetryWithoutBrowserCookies(context.Background(), result) {
+		t.Fatal("images-only HLS response should trigger the public-client fallback")
+	}
+}
+
+func TestShouldNotRetryUnrelatedFailureWithoutBrowserCookies(t *testing.T) {
+	worker := &Worker{cookieBrowser: "chrome"}
+	result := downloadAttemptResult{err: errors.New("exit status 1"), log: "HTTP Error 403: Forbidden"}
+
+	if worker.shouldRetryWithoutBrowserCookies(context.Background(), result) {
+		t.Fatal("an unrelated failure should not trigger the public-client fallback")
 	}
 }
 

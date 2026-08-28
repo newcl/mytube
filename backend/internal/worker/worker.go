@@ -32,6 +32,7 @@ const (
 
 	directFirstFormat = "18/93/best[height<=360][protocol=m3u8_native][ext=mp4]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
 	hlsFirstFormat    = "93/best[height<=360][protocol=m3u8_native][ext=mp4]/18/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]"
+	publicDASHFormat  = "bestvideo[height<=360][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio"
 )
 
 // Worker polls for queued jobs and runs them concurrently up to concurrency.
@@ -174,7 +175,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	}
 
 	outputTemplate := w.downloadDir + "/%(title).200B-%(id)s.%(ext)s"
-	result := w.runDownloadAttempt(ctx, job, outputTemplate, false)
+	result := w.runDownloadAttempt(ctx, job, outputTemplate, downloadModeDirect)
 	combinedLog := result.log
 
 	if w.shouldRetryWithHLS(ctx, result) {
@@ -182,8 +183,18 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 			w.metrics.DownloadFallback()
 		}
 		log.Printf("worker: job %d direct MP4 failed; retrying with HLS: %v", job.ID, result.err)
-		fallback := w.runDownloadAttempt(ctx, job, outputTemplate, true)
+		fallback := w.runDownloadAttempt(ctx, job, outputTemplate, downloadModeHLSSafari)
 		combinedLog += "\n--- direct MP4 failed; HLS fallback ---\n" + fallback.log
+		result = fallback
+	}
+
+	if w.shouldRetryWithoutBrowserCookies(ctx, result) {
+		if w.metrics != nil {
+			w.metrics.DownloadFallback()
+		}
+		log.Printf("worker: job %d HLS client returned no playable formats; retrying public client without browser cookies", job.ID)
+		fallback := w.runDownloadAttempt(ctx, job, outputTemplate, downloadModePublicDirect)
+		combinedLog += "\n--- HLS client had no playable formats; public-client fallback ---\n" + fallback.log
 		result = fallback
 	}
 
@@ -232,8 +243,25 @@ type downloadAttemptResult struct {
 	log        string
 }
 
-func (w *Worker) runDownloadAttempt(ctx context.Context, job *dbpkg.Job, outputTemplate string, hlsFallback bool) downloadAttemptResult {
-	cmd := exec.CommandContext(ctx, w.ytdlpPath, w.downloadArgs(outputTemplate, job.URL, hlsFallback)...)
+type downloadMode int
+
+const (
+	downloadModeDirect downloadMode = iota
+	downloadModeHLSSafari
+	downloadModePublicDirect
+)
+
+func (w *Worker) shouldRetryWithoutBrowserCookies(ctx context.Context, result downloadAttemptResult) bool {
+	if result.err == nil || w.cookieBrowser == "" || ctx.Err() != nil {
+		return false
+	}
+	logText := strings.ToLower(result.log)
+	return strings.Contains(logText, "only images are available") &&
+		strings.Contains(logText, "requested format is not available")
+}
+
+func (w *Worker) runDownloadAttempt(ctx context.Context, job *dbpkg.Job, outputTemplate string, mode downloadMode) downloadAttemptResult {
+	cmd := exec.CommandContext(ctx, w.ytdlpPath, w.downloadArgs(outputTemplate, job.URL, mode)...)
 
 	var logBuf bytes.Buffer
 	pr, pw, err := os.Pipe()
@@ -335,7 +363,7 @@ func (w *Worker) runDownloadAttempt(ctx context.Context, job *dbpkg.Job, outputT
 	}
 }
 
-func (w *Worker) downloadArgs(outputTemplate, url string, hlsFallback bool) []string {
+func (w *Worker) downloadArgs(outputTemplate, url string, mode downloadMode) []string {
 	args := []string{
 		"--newline",
 		"--no-colors",
@@ -350,8 +378,18 @@ func (w *Worker) downloadArgs(outputTemplate, url string, hlsFallback bool) []st
 		"--print", "after_move:filepath", // emitted once after completion (filepath = final path)
 	}
 
-	if w.cookieBrowser != "" {
-		if hlsFallback {
+	if mode == downloadModePublicDirect {
+		// Some authenticated web_safari responses expose only storyboard images.
+		// A final cookie-free attempt lets yt-dlp select a working public client
+		// for otherwise public videos while keeping authenticated downloads first.
+		args = append(args,
+			"--force-overwrites",
+			"--format", publicDASHFormat,
+			"--merge-output-format", "mp4",
+			"--concurrent-fragments", strconv.Itoa(hlsConcurrentFrags),
+		)
+	} else if w.cookieBrowser != "" {
+		if mode == downloadModeHLSSafari {
 			// A failed direct MP4 can leave a partial final file because downloads
 			// are intentionally visible while in progress. Replace it on retry.
 			args = append(args,
