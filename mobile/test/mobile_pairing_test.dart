@@ -7,6 +7,15 @@ void main() {
   test('parses a trusted Mytube pairing URI', () {
     const code = 'mt_pair_abcdefghijklmnopqrstuvwxyz';
     final payload = MobilePairingPayload.parse(
+      'mytube://pair?v=1&api=https%3A%2F%2Fmytubeapi.elladali.com%3A8443&code=$code',
+    );
+    expect(payload.apiBase, trustedMytubeApi);
+    expect(payload.code, code);
+  });
+
+  test('migrates a legacy pairing URI to the LAN-aware endpoint', () {
+    const code = 'mt_pair_abcdefghijklmnopqrstuvwxyz';
+    final payload = MobilePairingPayload.parse(
       'mytube://pair?v=1&api=https%3A%2F%2Fmytubeapi.elladali.com&code=$code',
     );
     expect(payload.apiBase, trustedMytubeApi);

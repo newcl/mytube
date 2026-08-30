@@ -135,7 +135,7 @@ class ShareViewController: UIViewController {
     let defaults = UserDefaults(suiteName: kAppGroup)
     let serverUrl = keychainRead(key: kServerUrl)
       ?? defaults?.string(forKey: kServerUrl)
-      ?? "https://mytubeapi.elladali.com"
+      ?? "https://mytubeapi.elladali.com:8443"
     let token = keychainRead(key: kBearerToken)
       ?? defaults?.string(forKey: kBearerToken)
       ?? ""

@@ -1,0 +1,37 @@
+{
+	http_port 8082
+	auto_https disable_redirects
+}
+
+# Direct HTTPS for clients whose home DNS resolves this hostname to the Mac.
+https://mytubeapi.elladali.com:8443 {
+	bind {$MYTUBE_LAN_IP}
+
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+			alt_http_port 8082
+		}
+	}
+
+	reverse_proxy 127.0.0.1:8081
+}
+
+# The Cloudflare Tunnel uses this loopback listener. It also makes Caddy's
+# HTTP-01 ACME challenge reachable through the existing public hostname.
+http://mytubeapi.elladali.com:8082 {
+	bind 127.0.0.1
+	reverse_proxy 127.0.0.1:8081
+}
+
+# Bonjour-discovered LAN endpoint. This listener is reachable only on the
+# Mac's private address; the backend continues to enforce device bearer auth.
+http://:8083 {
+	bind {$MYTUBE_LAN_IP}
+	header X-MyTube-LAN "1"
+	log {
+		output file {$HOME}/Library/Logs/MyTube/lan-access.log
+		format json
+	}
+	reverse_proxy 127.0.0.1:8081
+}

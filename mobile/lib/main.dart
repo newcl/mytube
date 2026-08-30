@@ -14,12 +14,14 @@ import 'playback_progress.dart';
 import 'player_recovery.dart';
 import 'playlist.dart';
 import 'mobile_pairing.dart';
+import 'lan_discovery.dart';
 import 'telemetry.dart';
 
 const String kKeychainAccessGroup = 'E9PT7FP7N6.com.mytube.mytubeMobile';
 const String kKeyServerUrl = 'mytube_server_url';
 const String kKeyBearerToken = 'mytube_bearer_token';
-const String kDefaultApiUrl = 'https://mytubeapi.elladali.com';
+const String kDefaultApiUrl = 'https://mytubeapi.elladali.com:8443';
+const String kLegacyApiUrl = 'https://mytubeapi.elladali.com';
 const String kDefaultToken = '';
 const String kMobileAppVersion = '1.0.0';
 late final MobileTelemetry appTelemetry;
@@ -79,17 +81,43 @@ class Job {
 
 class ApiService {
   final String baseUrl;
+  final String? fallbackBaseUrl;
   final String token;
-  ApiService({required this.baseUrl, required this.token});
+  ApiService({
+    required this.baseUrl,
+    required this.token,
+    this.fallbackBaseUrl,
+  });
   Map<String, String> get _headers => {
     'Authorization': 'Bearer $token',
     'Content-Type': 'application/json',
   };
   Map<String, String> get mediaHeaders => {'Authorization': 'Bearer $token'};
+
+  Future<http.Response> _getWithFallback(String path) async {
+    try {
+      return await http
+          .get(Uri.parse('$baseUrl$path'), headers: _headers)
+          .timeout(const Duration(seconds: 10));
+    } on Object {
+      final fallback = fallbackBaseUrl;
+      if (fallback == null) rethrow;
+      return http
+          .get(Uri.parse('$fallback$path'), headers: _headers)
+          .timeout(const Duration(seconds: 10));
+    }
+  }
+
   Future<List<Job>> listJobs() async {
-    final res = await http
-        .get(Uri.parse('$baseUrl/api/jobs?limit=100'), headers: _headers)
-        .timeout(const Duration(seconds: 10));
+    var res = await _getWithFallback('/api/jobs?limit=100');
+    if (res.statusCode >= 500 && fallbackBaseUrl != null) {
+      res = await http
+          .get(
+            Uri.parse('$fallbackBaseUrl/api/jobs?limit=100'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 10));
+    }
     if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
     final list = jsonDecode(res.body) as List;
     return list.map((j) => Job.fromJson(j as Map<String, dynamic>)).toList();
@@ -119,13 +147,22 @@ class ApiService {
   }
 
   String fileUrl(int id) => '$baseUrl/files/$id';
+  List<String> fileUrls(int id) => [
+    fileUrl(id),
+    if (fallbackBaseUrl != null) '$fallbackBaseUrl/files/$id',
+  ];
 }
 
 // ── Local download manager ────────────────────────────────────────────────────
 
 class LocalDownloadManager {
-  LocalDownloadManager({required this.baseUrl, required this.token});
+  LocalDownloadManager({
+    required this.baseUrl,
+    required this.token,
+    this.fallbackBaseUrl,
+  });
   final String baseUrl;
+  final String? fallbackBaseUrl;
   final String token;
 
   Future<Directory> _dir() async {
@@ -172,14 +209,32 @@ class LocalDownloadManager {
   }
 
   Future<File> download(int jobId, void Function(double) onProgress) async {
-    final url = '$baseUrl/files/$jobId';
     final dir = await _dir();
     final file = _fileFor(dir, jobId);
     final tmpFile = File('${dir.path}/$jobId.tmp');
 
-    final request = http.Request('GET', Uri.parse(url));
-    request.headers['Authorization'] = 'Bearer $token';
-    final response = await request.send().timeout(const Duration(minutes: 30));
+    Future<http.StreamedResponse> send(String endpoint) {
+      final request = http.Request('GET', Uri.parse('$endpoint/files/$jobId'));
+      request.headers['Authorization'] = 'Bearer $token';
+      return request.send().timeout(const Duration(minutes: 30));
+    }
+
+    http.StreamedResponse response;
+    var usedFallback = false;
+    try {
+      response = await send(baseUrl);
+    } on Object {
+      final fallback = fallbackBaseUrl;
+      if (fallback == null) rethrow;
+      usedFallback = true;
+      response = await send(fallback);
+    }
+    if (!usedFallback &&
+        response.statusCode >= 500 &&
+        fallbackBaseUrl != null) {
+      await response.stream.drain<void>();
+      response = await send(fallbackBaseUrl!);
+    }
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }
@@ -265,11 +320,15 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
   ApiService _api = ApiService(baseUrl: kDefaultApiUrl, token: kDefaultToken);
   bool _settingsLoaded = false;
+  String _publicApiUrl = kDefaultApiUrl;
+  String _token = kDefaultToken;
+  int _endpointGeneration = 0;
   late final PlaylistController _playlist;
+  late final LanEndpointSelector _lanEndpointSelector;
   final _storage = const FlutterSecureStorage(
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock,
@@ -280,15 +339,26 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _playlist = PlaylistController();
+    _lanEndpointSelector = LanEndpointSelector();
     unawaited(_playlist.load());
     _loadSettings().then((_) => _checkIncomingUrl());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _lanEndpointSelector.close();
     _playlist.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _settingsLoaded) {
+      unawaited(_selectBestEndpoint(_publicApiUrl, _token));
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -301,7 +371,9 @@ class _MainShellState extends State<MainShell> {
       ]).timeout(const Duration(seconds: 5));
       final storedUrl = results[0];
       final storedToken = results[1];
-      if (storedUrl != null &&
+      if (storedUrl == kLegacyApiUrl) {
+        url = kDefaultApiUrl;
+      } else if (storedUrl != null &&
           storedUrl.isNotEmpty &&
           storedUrl != 'https://mytube.elladali.com' &&
           storedUrl != 'https://api.mytube.elladali.com') {
@@ -326,8 +398,26 @@ class _MainShellState extends State<MainShell> {
     appTelemetry.configure(baseUrl: url, token: token);
     unawaited(appTelemetry.flush(ignoreBackoff: true));
     setState(() {
+      _publicApiUrl = url;
+      _token = token;
       _api = ApiService(baseUrl: url, token: token);
       _settingsLoaded = true;
+    });
+    unawaited(_selectBestEndpoint(url, token));
+  }
+
+  Future<void> _selectBestEndpoint(String publicUrl, String token) async {
+    final generation = ++_endpointGeneration;
+    final lanUrl = await _lanEndpointSelector.discover();
+    if (!mounted || generation != _endpointGeneration) return;
+    final nextUrl = lanUrl ?? publicUrl;
+    if (_api.baseUrl == nextUrl && _api.token == token) return;
+    setState(() {
+      _api = ApiService(
+        baseUrl: nextUrl,
+        token: token,
+        fallbackBaseUrl: lanUrl == null ? null : publicUrl,
+      );
     });
   }
 
@@ -373,7 +463,11 @@ class _MainShellState extends State<MainShell> {
       JobsPage(api: _api, playlist: _playlist),
       PlaylistPage(api: _api, playlist: _playlist),
       SubmitPage(api: _api),
-      SettingsPage(storage: _storage, onSaved: _loadSettings),
+      SettingsPage(
+        storage: _storage,
+        onSaved: _loadSettings,
+        activeApiUrl: _api.baseUrl,
+      ),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
@@ -435,6 +529,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   LocalDownloadManager get _dlManager => LocalDownloadManager(
     baseUrl: widget.api.baseUrl,
     token: widget.api.token,
+    fallbackBaseUrl: widget.api.fallbackBaseUrl,
   );
 
   void _enterSelectMode(int id) {
@@ -1943,6 +2038,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final manager = LocalDownloadManager(
       baseUrl: widget.api!.baseUrl,
       token: widget.api!.token,
+      fallbackBaseUrl: widget.api!.fallbackBaseUrl,
     );
     return manager.getLocalFile(_job.id);
   }
@@ -1996,15 +2092,36 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         allowBackgroundPlayback: true,
         mixWithOthers: false,
       );
-      candidate = localFile != null
-          ? VideoPlayerController.file(localFile, videoPlayerOptions: options)
-          : VideoPlayerController.networkUrl(
-              Uri.parse(_currentVideoUrl),
-              httpHeaders: widget.api!.mediaHeaders,
-              videoPlayerOptions: options,
-            );
+      if (localFile != null) {
+        candidate = VideoPlayerController.file(
+          localFile,
+          videoPlayerOptions: options,
+        );
+        await candidate.initialize();
+      } else {
+        Object? lastNetworkError;
+        for (final url in widget.api!.fileUrls(_job.id)) {
+          final networkCandidate = VideoPlayerController.networkUrl(
+            Uri.parse(url),
+            httpHeaders: widget.api!.mediaHeaders,
+            videoPlayerOptions: options,
+          );
+          candidate = networkCandidate;
+          try {
+            await networkCandidate.initialize();
+            lastNetworkError = null;
+            break;
+          } on Object catch (error) {
+            lastNetworkError = error;
+            await networkCandidate.dispose();
+            candidate = null;
+          }
+        }
+        if (candidate == null) {
+          throw lastNetworkError ?? StateError('No media endpoint available');
+        }
+      }
       final controller = candidate;
-      await controller.initialize();
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
         return;
@@ -3339,7 +3456,13 @@ class _SubmitPageState extends State<SubmitPage> {
 class SettingsPage extends StatefulWidget {
   final FlutterSecureStorage storage;
   final Future<void> Function() onSaved;
-  const SettingsPage({super.key, required this.storage, required this.onSaved});
+  final String activeApiUrl;
+  const SettingsPage({
+    super.key,
+    required this.storage,
+    required this.onSaved,
+    required this.activeApiUrl,
+  });
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -3426,6 +3549,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final usingLan = widget.activeApiUrl.startsWith('http://');
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
@@ -3473,13 +3597,21 @@ class _SettingsPageState extends State<SettingsPage> {
                     child: Row(
                       children: [
                         Icon(
-                          _connected ? Icons.verified_user : Icons.link_off,
+                          _connected
+                              ? usingLan
+                                    ? Icons.wifi
+                                    : Icons.cloud_done
+                              : Icons.link_off,
                           color: _connected ? Colors.green : null,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            _connected ? 'Connected securely' : 'Not connected',
+                            _connected
+                                ? usingLan
+                                      ? 'Direct home Wi-Fi · public fallback ready'
+                                      : 'Cloudflare HTTPS'
+                                : 'Not connected',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),

@@ -35,7 +35,21 @@ void main() {
 
     expect(api.fileUrl(42), 'https://example.test/files/42');
     expect(api.fileUrl(42), isNot(contains('mt_device_secret')));
+    expect(api.fileUrls(42), ['https://example.test/files/42']);
     expect(api.mediaHeaders['Authorization'], 'Bearer mt_device_secret');
+  });
+
+  test('media URLs prefer LAN and retain the public fallback', () {
+    final api = ApiService(
+      baseUrl: 'http://mytube.local:8083',
+      fallbackBaseUrl: 'https://example.test',
+      token: 'mt_device_secret',
+    );
+
+    expect(api.fileUrls(42), [
+      'http://mytube.local:8083/files/42',
+      'https://example.test/files/42',
+    ]);
   });
 
   testWidgets('library retries when loaded credentials replace bootstrap API', (

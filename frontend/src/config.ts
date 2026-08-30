@@ -1,5 +1,5 @@
 export const DEFAULT_API_BASE = '/backend';
-export const MOBILE_API_BASE = 'https://mytubeapi.elladali.com';
+export const MOBILE_API_BASE = 'https://mytubeapi.elladali.com:8443';
 
 // Production API traffic stays same-origin. The Cloudflare Pages Function
 // validates the Access session and injects the server-side credential.

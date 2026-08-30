@@ -12,6 +12,9 @@ Personal YouTube downloader + library UI + Chrome extension.
 
 - Frontend: `https://mytube.elladali.com`
 - Backend: `https://mytubeapi.elladali.com`
+- Mobile API: automatic Bonjour LAN discovery on home Wi-Fi, with
+  `https://mytubeapi.elladali.com:8443` as the Cloudflare fallback. See
+  [`docs/lan-fast-path.md`](docs/lan-fast-path.md).
 
 ## Repo layout
 

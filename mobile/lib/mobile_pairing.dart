@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-const String trustedMytubeApi = 'https://mytubeapi.elladali.com';
+const String trustedMytubeApi = 'https://mytubeapi.elladali.com:8443';
+const String legacyTrustedMytubeApi = 'https://mytubeapi.elladali.com';
 
 class MobilePairingPayload {
   const MobilePairingPayload({required this.apiBase, required this.code});
@@ -14,11 +15,12 @@ class MobilePairingPayload {
 
   static MobilePairingPayload parse(String raw) {
     final uri = Uri.tryParse(raw);
+    final api = uri?.queryParameters['api'];
     if (uri == null ||
         uri.scheme != 'mytube' ||
         uri.host != 'pair' ||
         uri.queryParameters['v'] != '1' ||
-        uri.queryParameters['api'] != trustedMytubeApi) {
+        (api != trustedMytubeApi && api != legacyTrustedMytubeApi)) {
       throw const FormatException('This is not a trusted Mytube pairing code.');
     }
     final code = uri.queryParameters['code'] ?? '';

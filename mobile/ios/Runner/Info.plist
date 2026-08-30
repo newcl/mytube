@@ -28,6 +28,17 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a one-time Mytube pairing code from your signed-in web app.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect directly to your MyTube server when this iPhone is on your home Wi-Fi.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_mytube._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
