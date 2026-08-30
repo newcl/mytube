@@ -27,6 +27,21 @@ class FakeApiService extends ApiService {
 }
 
 void main() {
+  test('subtitle search result parses frontend-compatible fields', () {
+    final result = SubtitleSearchResult.fromJson({
+      'job_id': 42,
+      'title': 'Transformer walkthrough',
+      'uploader': 'Example',
+      'start': 75.5,
+      'duration': 4.2,
+      'text': 'attention is all you need',
+    });
+
+    expect(result.jobId, 42);
+    expect(result.start, 75.5);
+    expect(result.text, 'attention is all you need');
+  });
+
   test('media URLs never contain bearer credentials', () {
     final api = ApiService(
       baseUrl: 'https://example.test',
@@ -77,6 +92,30 @@ void main() {
     expect(authenticated.calls, 1);
     expect(find.text('No downloads yet'), findsOneWidget);
     expect(find.text('Server access needs setup'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    playlist.dispose();
+  });
+
+  testWidgets('library replaces the Mytube banner with subtitle search', (
+    tester,
+  ) async {
+    final api = FakeApiService(token: 'mt_device_valid');
+    final playlist = PlaylistController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: JobsPage(api: api, playlist: playlist),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mytube'), findsNothing);
+    expect(find.byTooltip('Search subtitles'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Search subtitles'));
+    await tester.pump();
+    expect(find.widgetWithText(TextField, 'Search subtitles…'), findsOneWidget);
+
     await tester.pumpWidget(const SizedBox.shrink());
     playlist.dispose();
   });

@@ -19,6 +19,14 @@ class LanService {
   ).toString().replaceFirst(RegExp(r'/$'), '');
 }
 
+LanService? lanServiceFromNsdService(nsd.Service service) {
+  final port = service.port;
+  final host = service.host;
+  if (port == null || port <= 0 || port > 65535) return null;
+  if (host == null || host.isEmpty) return null;
+  return LanService(host: host, port: port);
+}
+
 abstract interface class LanServiceBrowser {
   Future<List<LanService>> browse({required Duration timeout});
 }
@@ -30,20 +38,18 @@ class MdnsLanServiceBrowser implements LanServiceBrowser {
     nsd.Discovery? discovery;
     try {
       discovery = await nsd
-          .startDiscovery(mytubeBonjourService)
+          .startDiscovery(
+            mytubeBonjourService,
+            ipLookupType: nsd.IpLookupType.v4,
+          )
           .timeout(timeout);
       final found = Completer<void>();
 
       void collect(nsd.Service service, nsd.ServiceStatus status) {
         if (status != nsd.ServiceStatus.found) return;
-        final host = service.host;
-        final port = service.port;
-        if (host != null &&
-            host.isNotEmpty &&
-            port != null &&
-            port > 0 &&
-            port <= 65535) {
-          services.add(LanService(host: host, port: port));
+        final lanService = lanServiceFromNsdService(service);
+        if (lanService != null) {
+          services.add(lanService);
           if (!found.isCompleted) found.complete();
         }
       }
@@ -82,24 +88,41 @@ class LanEndpointSelector {
   Future<String?> discover({
     Duration discoveryTimeout = const Duration(seconds: 2),
     Duration probeTimeout = const Duration(seconds: 2),
+    int attempts = 1,
+    Duration retryBackoff = const Duration(seconds: 1),
   }) async {
-    final services = await _browser.browse(timeout: discoveryTimeout);
-    for (final service in services) {
-      try {
-        final response = await _client
-            .get(Uri.parse('${service.baseUrl}/health'))
-            .timeout(probeTimeout);
-        final payload = jsonDecode(response.body) as Map<String, dynamic>;
-        if (response.statusCode == 200 &&
-            response.headers['x-mytube-lan'] == '1' &&
-            payload['status'] == 'ok') {
+    if (attempts < 1) {
+      throw ArgumentError.value(attempts, 'attempts', 'must be at least 1');
+    }
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(retryBackoff * attempt);
+      }
+      final services = await _browser.browse(timeout: discoveryTimeout);
+      for (final service in services) {
+        if (await isHealthy(service.baseUrl, timeout: probeTimeout)) {
           return service.baseUrl;
         }
-      } on Object {
-        // Try the next advertisement, then fall back to public HTTPS.
       }
     }
     return null;
+  }
+
+  Future<bool> isHealthy(
+    String baseUrl, {
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/health'))
+          .timeout(timeout);
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      return response.statusCode == 200 &&
+          response.headers['x-mytube-lan'] == '1' &&
+          payload['status'] == 'ok';
+    } on Object {
+      return false;
+    }
   }
 
   void close() {

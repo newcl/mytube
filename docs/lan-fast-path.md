@@ -8,22 +8,28 @@ https://mytubeapi.elladali.com:8443
 ```
 
 On home Wi-Fi, macOS advertises `MyTube._mytube._tcp.local` through Bonjour.
-The app resolves that service, probes its `/health` response for the
-`X-MyTube-LAN: 1` marker, and then switches API, downloads, and media playback
-to the discovered `.local` host on port 8083. If discovery, permission, or the
-probe fails, the app stays on Cloudflare. Read requests and media initialization
-also retain the public endpoint as a fallback.
+The server publishes that service only on the Mac's Wi-Fi interface (`en1`).
+Bonjour therefore supplies the current Wi-Fi address without exposing the
+VMware interfaces or depending on a fixed DHCP lease. A small LaunchAgent
+supervisor keeps Caddy bound only to the current `en1` IPv4 address and restarts
+it if DHCP changes that address. The app probes `/health` for the
+`X-MyTube-LAN: 1` marker and then switches API, downloads, and media playback
+to the discovered `.local` host on port 8083. Startup and resume perform three
+discovery attempts with backoff, and the foreground app checks every 15 seconds
+so it can switch as Bonjour becomes available. A known LAN endpoint is retained
+while its health probe succeeds. If discovery, permission, or the probe fails,
+the app stays on Cloudflare. Read requests and media initialization also retain
+the public endpoint as a fallback.
 
 ## Components
 
 - MyTube backend: `127.0.0.1:8081`, unchanged and not directly LAN-accessible.
 - Caddy LaunchAgent: `com.mytube.caddy`.
 - Bonjour advertiser LaunchAgent: `com.mytube.discovery`.
-- Discovered LAN listener: `192.168.1.72:8083`, advertised as
-  `_mytube._tcp.local`.
+- Discovered LAN listener: the Mac's current home-network address on port 8083,
+  advertised as `_mytube._tcp.local` only on Wi-Fi.
 - Public tunnel listener: `127.0.0.1:8082`, HTTP and loopback-only.
-- Compatibility HTTPS listener: `192.168.1.72:8443` with a Let's Encrypt
-  certificate.
+- Compatibility HTTPS listener: port 8443 with a Let's Encrypt certificate.
 - Public mobile endpoint: `https://mytubeapi.elladali.com:8443`.
 
 The LAN listener still requires the per-device bearer credential. Its traffic
@@ -44,6 +50,7 @@ bash scripts/install-lan-proxy.sh restart
 Configuration and logs:
 
 - `~/Library/Application Support/MyTube/Caddyfile`
+- `~/Library/Application Support/MyTube/run-lan-proxy.sh`
 - `~/Library/Application Support/MyTube/caddy-data/`
 - `~/Library/LaunchAgents/com.mytube.caddy.plist`
 - `~/Library/LaunchAgents/com.mytube.discovery.plist`

@@ -77,6 +77,34 @@ class Job {
   );
 }
 
+class SubtitleSearchResult {
+  const SubtitleSearchResult({
+    required this.jobId,
+    required this.title,
+    required this.uploader,
+    required this.start,
+    required this.duration,
+    required this.text,
+  });
+
+  final int jobId;
+  final String title;
+  final String uploader;
+  final double start;
+  final double duration;
+  final String text;
+
+  factory SubtitleSearchResult.fromJson(Map<String, dynamic> json) =>
+      SubtitleSearchResult(
+        jobId: json['job_id'] as int,
+        title: json['title'] as String? ?? '',
+        uploader: json['uploader'] as String? ?? '',
+        start: (json['start'] as num?)?.toDouble() ?? 0,
+        duration: (json['duration'] as num?)?.toDouble() ?? 0,
+        text: json['text'] as String? ?? '',
+      );
+}
+
 // ── API service ───────────────────────────────────────────────────────────────
 
 class ApiService {
@@ -121,6 +149,28 @@ class ApiService {
     if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
     final list = jsonDecode(res.body) as List;
     return list.map((j) => Job.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<SubtitleSearchResult>> searchSubtitles(String query) async {
+    final encoded = Uri.encodeQueryComponent(query.trim());
+    var res = await _getWithFallback('/api/subtitles/search?q=$encoded');
+    if (res.statusCode >= 500 && fallbackBaseUrl != null) {
+      res = await http
+          .get(
+            Uri.parse('$fallbackBaseUrl/api/subtitles/search?q=$encoded'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 10));
+    }
+    if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
+    final payload = jsonDecode(res.body) as Map<String, dynamic>;
+    final results = payload['results'] as List? ?? const [];
+    return results
+        .map(
+          (result) =>
+              SubtitleSearchResult.fromJson(result as Map<String, dynamic>),
+        )
+        .toList();
   }
 
   Future<int> createJob(String url) async {
@@ -327,6 +377,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   String _publicApiUrl = kDefaultApiUrl;
   String _token = kDefaultToken;
   int _endpointGeneration = 0;
+  Timer? _endpointMonitorTimer;
   late final PlaylistController _playlist;
   late final LanEndpointSelector _lanEndpointSelector;
   final _storage = const FlutterSecureStorage(
@@ -349,6 +400,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _endpointMonitorTimer?.cancel();
     _lanEndpointSelector.close();
     _playlist.dispose();
     super.dispose();
@@ -357,7 +409,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _settingsLoaded) {
-      unawaited(_selectBestEndpoint(_publicApiUrl, _token));
+      _startEndpointMonitoring();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _endpointMonitorTimer?.cancel();
     }
   }
 
@@ -403,12 +459,31 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _api = ApiService(baseUrl: url, token: token);
       _settingsLoaded = true;
     });
-    unawaited(_selectBestEndpoint(url, token));
+    _startEndpointMonitoring();
   }
 
-  Future<void> _selectBestEndpoint(String publicUrl, String token) async {
+  void _startEndpointMonitoring() {
+    _endpointMonitorTimer?.cancel();
+    unawaited(_selectBestEndpoint(_publicApiUrl, _token, discoveryAttempts: 3));
+    _endpointMonitorTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      unawaited(_selectBestEndpoint(_publicApiUrl, _token));
+    });
+  }
+
+  Future<void> _selectBestEndpoint(
+    String publicUrl,
+    String token, {
+    int discoveryAttempts = 1,
+  }) async {
     final generation = ++_endpointGeneration;
-    final lanUrl = await _lanEndpointSelector.discover();
+    String? lanUrl;
+    final currentUrl = _api.baseUrl;
+    if (currentUrl.startsWith('http://') &&
+        await _lanEndpointSelector.isHealthy(currentUrl)) {
+      lanUrl = currentUrl;
+    } else {
+      lanUrl = await _lanEndpointSelector.discover(attempts: discoveryAttempts);
+    }
     if (!mounted || generation != _endpointGeneration) return;
     final nextUrl = lanUrl ?? publicUrl;
     if (_api.baseUrl == nextUrl && _api.token == token) return;
@@ -526,6 +601,13 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   final Set<int> _locallyDownloaded = {};
   final Map<int, double> _downloading = {};
   final Set<int> _retrying = {};
+  final TextEditingController _subtitleQueryController =
+      TextEditingController();
+  bool _showSubtitleSearch = false;
+  bool _subtitleLoading = false;
+  bool _subtitleSearched = false;
+  List<SubtitleSearchResult> _subtitleResults = [];
+  String? _subtitleError;
   LocalDownloadManager get _dlManager => LocalDownloadManager(
     baseUrl: widget.api.baseUrl,
     token: widget.api.token,
@@ -643,6 +725,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _subtitleQueryController.dispose();
     widget.playlist.removeListener(_playlistChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -743,6 +826,10 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _play(Job job) async {
+    await _playAt(job);
+  }
+
+  Future<void> _playAt(Job job, {Duration? initialPosition}) async {
     final localFile = await _dlManager.getLocalFile(job.id);
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -751,9 +838,63 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
           job: job,
           api: widget.api,
           localFile: localFile,
+          initialPosition: initialPosition,
         ),
       ),
     );
+  }
+
+  Future<void> _searchSubtitles() async {
+    final query = _subtitleQueryController.text.trim();
+    if (query.isEmpty || _subtitleLoading) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _subtitleLoading = true;
+      _subtitleSearched = true;
+      _subtitleResults = [];
+      _subtitleError = null;
+    });
+    try {
+      final results = await widget.api.searchSubtitles(query);
+      if (!mounted) return;
+      setState(() => _subtitleResults = results);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _subtitleError = 'Subtitle search failed. Try again.');
+    } finally {
+      if (mounted) setState(() => _subtitleLoading = false);
+    }
+  }
+
+  Future<void> _openSubtitleResult(SubtitleSearchResult result) async {
+    Job? job;
+    for (final candidate in _jobs) {
+      if (candidate.id == result.jobId) {
+        job = candidate;
+        break;
+      }
+    }
+    if (job == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That video is no longer available.')),
+      );
+      return;
+    }
+    await _playAt(
+      job,
+      initialPosition: Duration(milliseconds: (result.start * 1000).round()),
+    );
+  }
+
+  String _subtitleTimestamp(double seconds) {
+    final total = seconds.round().clamp(0, 24 * 60 * 60);
+    final hours = total ~/ 3600;
+    final minutes = (total % 3600) ~/ 60;
+    final remainingSeconds = total % 60;
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   void _addToPlaylist(Job job) {
@@ -832,48 +973,217 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                 ),
               ],
             )
-          : AppBar(title: const Text('Mytube'), actions: const []),
-      body: _loading && _jobs.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _jobs.isEmpty
-          ? _buildError()
-          : _jobs.isEmpty
-          ? _buildEmpty()
-          : RefreshIndicator(
-              onRefresh: _refresh,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: _jobs.length,
-                itemBuilder: (_, i) => _JobCard(
-                  job: _jobs[i],
-                  onDelete: () => _delete(_jobs[i]),
-                  onPlay: _selectMode ? null : () => _play(_jobs[i]),
-                  selectMode: _selectMode && !_jobs[i].isActive,
-                  selected:
-                      !_jobs[i].isActive && _selected.contains(_jobs[i].id),
-                  onLongPress: _jobs[i].isActive
-                      ? () {}
-                      : () => _enterSelectMode(_jobs[i].id),
-                  onToggleSelect: _jobs[i].isActive
-                      ? () {}
-                      : () => _toggleSelect(_jobs[i].id),
-                  isLocallyDownloaded: _locallyDownloaded.contains(_jobs[i].id),
-                  downloadingProgress: _downloading[_jobs[i].id],
-                  onDownloadToPhone: _selectMode
-                      ? null
-                      : () => _downloadToPhone(_jobs[i]),
-                  isInPlaylist: widget.playlist.contains(
-                    jobId: _jobs[i].id,
-                    url: _jobs[i].url,
+          : null,
+      body: _selectMode
+          ? _buildLibraryContent()
+          : SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  _buildLibraryToolbar(),
+                  if (_showSubtitleSearch) _buildSubtitleResults(),
+                  Expanded(child: _buildLibraryContent()),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildLibraryToolbar() {
+    if (_showSubtitleSearch) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 42,
+                child: TextField(
+                  controller: _subtitleQueryController,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _searchSubtitles(),
+                  decoration: const InputDecoration(
+                    hintText: 'Search subtitles…',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(vertical: 8),
                   ),
-                  onAddToPlaylist: _selectMode
-                      ? null
-                      : () => _addToPlaylist(_jobs[i]),
-                  retrying: _retrying.contains(_jobs[i].id),
-                  onRetry: _selectMode ? null : () => _retry(_jobs[i]),
                 ),
               ),
             ),
+            IconButton(
+              tooltip: 'Search',
+              onPressed: _subtitleLoading ? null : _searchSubtitles,
+              icon: _subtitleLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.arrow_forward),
+            ),
+            IconButton(
+              tooltip: 'Close search',
+              onPressed: () => setState(() {
+                _showSubtitleSearch = false;
+                _subtitleSearched = false;
+                _subtitleResults = [];
+                _subtitleError = null;
+              }),
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+      );
+    }
+    return SizedBox(
+      height: 44,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'Search subtitles',
+              onPressed: () => setState(() => _showSubtitleSearch = true),
+              icon: const Icon(Icons.search),
+            ),
+            const Spacer(),
+            if (_jobs.any((job) => !job.isActive))
+              IconButton(
+                tooltip: 'Select videos',
+                onPressed: () => setState(() => _selectMode = true),
+                icon: const Icon(Icons.check_box_outlined),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubtitleResults() {
+    if (!_subtitleSearched) return const SizedBox.shrink();
+    final query = _subtitleQueryController.text.trim();
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(maxHeight: 300),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: _subtitleError != null
+          ? Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                _subtitleError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            )
+          : _subtitleLoading
+          ? const SizedBox(height: 48)
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                  child: Text(
+                    '${_subtitleResults.length} result${_subtitleResults.length == 1 ? '' : 's'} for “$query”',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                if (_subtitleResults.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Text('No results found.'),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _subtitleResults.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (_, index) {
+                        final result = _subtitleResults[index];
+                        return ListTile(
+                          dense: true,
+                          onTap: () => _openSubtitleResult(result),
+                          leading: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _subtitleTimestamp(result.start),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            result.title.isEmpty ? 'Video' : result.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            result.text,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildLibraryContent() {
+    if (_loading && _jobs.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _jobs.isEmpty) return _buildError();
+    if (_jobs.isEmpty) return _buildEmpty();
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: _jobs.length,
+        itemBuilder: (_, i) => _JobCard(
+          job: _jobs[i],
+          onDelete: () => _delete(_jobs[i]),
+          onPlay: _selectMode ? null : () => _play(_jobs[i]),
+          selectMode: _selectMode && !_jobs[i].isActive,
+          selected: !_jobs[i].isActive && _selected.contains(_jobs[i].id),
+          onLongPress: _jobs[i].isActive
+              ? () {}
+              : () => _enterSelectMode(_jobs[i].id),
+          onToggleSelect: _jobs[i].isActive
+              ? () {}
+              : () => _toggleSelect(_jobs[i].id),
+          isLocallyDownloaded: _locallyDownloaded.contains(_jobs[i].id),
+          downloadingProgress: _downloading[_jobs[i].id],
+          onDownloadToPhone: _selectMode
+              ? null
+              : () => _downloadToPhone(_jobs[i]),
+          isInPlaylist: widget.playlist.contains(
+            jobId: _jobs[i].id,
+            url: _jobs[i].url,
+          ),
+          onAddToPlaylist: _selectMode ? null : () => _addToPlaylist(_jobs[i]),
+          retrying: _retrying.contains(_jobs[i].id),
+          onRetry: _selectMode ? null : () => _retry(_jobs[i]),
+        ),
+      ),
     );
   }
 
@@ -1894,6 +2204,7 @@ class VideoPlayerPage extends StatefulWidget {
     this.api,
     this.singleLocalFile,
     this.sessionMinutes,
+    this.initialPosition,
   });
 
   factory VideoPlayerPage.single({
@@ -1901,6 +2212,7 @@ class VideoPlayerPage extends StatefulWidget {
     required Job job,
     required ApiService api,
     File? localFile,
+    Duration? initialPosition,
   }) {
     return VideoPlayerPage._(
       key: key,
@@ -1909,6 +2221,7 @@ class VideoPlayerPage extends StatefulWidget {
       playlistMode: false,
       api: api,
       singleLocalFile: localFile,
+      initialPosition: initialPosition,
     );
   }
 
@@ -1935,6 +2248,7 @@ class VideoPlayerPage extends StatefulWidget {
   final ApiService? api;
   final File? singleLocalFile;
   final int? sessionMinutes;
+  final Duration? initialPosition;
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
@@ -2131,12 +2445,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         await controller.dispose();
         return;
       }
-      final resumedFrom = recoveryPosition == null
-          ? _progressStore.positionFor(_progressKey, controller.value.duration)
-          : boundedRecoveryPosition(
-              recoveryPosition,
+      final resumedFrom = recoveryPosition != null
+          ? boundedRecoveryPosition(recoveryPosition, controller.value.duration)
+          : widget.initialPosition != null
+          ? boundedRecoveryPosition(
+              widget.initialPosition!,
               controller.value.duration,
-            );
+            )
+          : _progressStore.positionFor(_progressKey, controller.value.duration);
       if (resumedFrom != null) await controller.seekTo(resumedFrom);
       final recoveryAttempts = _recoveryAttempt;
       _controller = controller;
