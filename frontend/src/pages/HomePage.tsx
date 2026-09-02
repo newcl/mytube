@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
 import QRCode from 'qrcode';
-import { listJobs, createJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult, createMobilePairing, listMobileDevices, revokeMobileDevice, type MobileDevice } from '../api';
+import { listJobs, createJob, retryJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult, createMobilePairing, listMobileDevices, revokeMobileDevice, type MobileDevice } from '../api';
 import {
   fileUrl,
   fileZipDownloadUrl,
@@ -259,7 +259,7 @@ function JobRow({
   async function handleRetry() {
     setRetrying(true);
     try {
-      await createJob(job.url);
+      await retryJob(job.id);
       telemetry.track('download_submitted', { outcome_code: 'retry' });
     } catch {
       telemetry.track('download_failed', { outcome_code: 'submit_error' });

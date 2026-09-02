@@ -206,6 +206,54 @@ func TestRecoverInterruptedJobs(t *testing.T) {
 	}
 }
 
+func TestRetryFailedJobPreservesIDAndClearsAttemptState(t *testing.T) {
+	database := openTestDB(t)
+	id, err := dbPkg.CreateJob(database, "https://example.com/retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobDownloading(database, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobOutputPath(database, id, "/tmp/partial.mp4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.UpdateJobProgress(database, id, &dbPkg.Progress{Percent: 42}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobFailed(database, id, "network failed", "download log"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dbPkg.RetryFailedJob(database, id); err != nil {
+		t.Fatal(err)
+	}
+	job, err := dbPkg.GetJob(database, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.ID != id || job.Status != dbPkg.StatusQueued {
+		t.Fatalf("retried job = id %d status %q, want id %d status queued", job.ID, job.Status, id)
+	}
+	if job.OutputPath != "" || job.Progress != nil || job.Error != "" {
+		t.Fatalf("attempt state was not cleared: %#v", job)
+	}
+}
+
+func TestRetryFailedJobRejectsOtherStatesAndMissingJobs(t *testing.T) {
+	database := openTestDB(t)
+	id, err := dbPkg.CreateJob(database, "https://example.com/queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.RetryFailedJob(database, id); err != dbPkg.ErrJobNotFailed {
+		t.Fatalf("queued retry error = %v, want ErrJobNotFailed", err)
+	}
+	if err := dbPkg.RetryFailedJob(database, id+100); err != sql.ErrNoRows {
+		t.Fatalf("missing retry error = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestDequeueJobs(t *testing.T) {
 	db := openTestDB(t)
 

@@ -72,6 +72,15 @@ export async function createJob(url: string): Promise<{ id: number }> {
   return res.json();
 }
 
+export async function retryJob(id: number): Promise<{ id: number }> {
+  const res = await apiFetch(`/api/jobs/${id}/retry`, { method: 'POST' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getJobLog(id: number): Promise<string> {
   const res = await apiFetch(`/api/jobs/${id}/log`);
   if (!res.ok) throw new Error(`${res.status}`);

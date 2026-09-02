@@ -3,11 +3,14 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 )
+
+var ErrJobNotFailed = errors.New("job is not failed")
 
 // JobStatus represents a job's lifecycle state.
 type JobStatus string
@@ -281,6 +284,37 @@ func SetJobFailed(db *sql.DB, id int64, errMsg, logTail string) error {
 		errMsg, logTail, id,
 	)
 	return err
+}
+
+// RetryFailedJob returns a failed job to the queue without changing its ID.
+// Attempt-specific state is cleared so the worker and clients never observe
+// progress, output, or diagnostics left behind by the failed attempt.
+func RetryFailedJob(db *sql.DB, id int64) error {
+	result, err := db.Exec(`UPDATE jobs SET
+		status            = 'queued',
+		updated_at        = strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+		output_path       = NULL,
+		progress_json     = NULL,
+		error_msg         = NULL,
+		log_tail          = NULL,
+		subtitles_checked = 0
+	WHERE id = ? AND status = 'failed'`, id)
+	if err != nil {
+		return fmt.Errorf("retry failed job: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("retry failed job rows affected: %w", err)
+	}
+	if updated == 1 {
+		return nil
+	}
+
+	var status JobStatus
+	if err := db.QueryRow(`SELECT status FROM jobs WHERE id = ?`, id).Scan(&status); err != nil {
+		return err
+	}
+	return ErrJobNotFailed
 }
 
 // RecoverInterruptedJobs returns jobs left in downloading state to the queue.

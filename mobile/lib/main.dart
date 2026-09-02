@@ -187,6 +187,16 @@ class ApiService {
     return (jsonDecode(res.body) as Map<String, dynamic>)['id'] as int;
   }
 
+  Future<int> retryJob(int id) async {
+    final res = await http
+        .post(Uri.parse('$baseUrl/api/jobs/$id/retry'), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) {
+      throw Exception(res.body.trim());
+    }
+    return (jsonDecode(res.body) as Map<String, dynamic>)['id'] as int;
+  }
+
   Future<void> deleteJob(int id) async {
     final res = await http
         .delete(Uri.parse('$baseUrl/api/jobs/$id'), headers: _headers)
@@ -798,13 +808,13 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
     if (job.url.isEmpty || _retrying.contains(job.id)) return;
     setState(() => _retrying.add(job.id));
     try {
-      final id = await widget.api.createJob(job.url);
+      final id = await widget.api.retryJob(job.id);
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Retry queued as job #$id'),
+          content: Text('Job #$id queued again'),
           duration: const Duration(seconds: 2),
         ),
       );

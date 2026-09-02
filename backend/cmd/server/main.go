@@ -278,6 +278,7 @@ func buildRouter(handler *apiPkg.Handler, database *sql.DB, deviceAuth *deviceau
 		router.Post("/api/telemetry/events", handler.PostTelemetryEvents)
 		router.Get("/api/jobs", handler.GetJobs)
 		router.Get("/api/jobs/{id}", handler.GetJob)
+		router.Post("/api/jobs/{id}/retry", handler.RetryJob)
 		router.Delete("/api/jobs/{id}", handler.DeleteJob)
 		router.Get("/api/jobs/{id}/log", handler.GetJobLog)
 		router.Get("/api/jobs/{id}/subtitles", handler.GetSubtitles)

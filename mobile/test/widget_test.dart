@@ -10,6 +10,7 @@ class FakeApiService extends ApiService {
   final Object? error;
   final List<Job> jobs;
   final List<String> createdUrls = [];
+  final List<int> retriedJobIds = [];
   int calls = 0;
 
   @override
@@ -23,6 +24,12 @@ class FakeApiService extends ApiService {
   Future<int> createJob(String url) async {
     createdUrls.add(url);
     return 574;
+  }
+
+  @override
+  Future<int> retryJob(int id) async {
+    retriedJobIds.add(id);
+    return id;
   }
 }
 
@@ -157,8 +164,9 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(api.createdUrls, ['https://youtube.com/watch?v=VMp5gOjN-w8']);
-    expect(find.text('Retry queued as job #574'), findsOneWidget);
+    expect(api.createdUrls, isEmpty);
+    expect(api.retriedJobIds, [573]);
+    expect(find.text('Job #573 queued again'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     playlist.dispose();

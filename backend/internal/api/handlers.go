@@ -164,6 +164,58 @@ func (h *Handler) GetJobLog(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"tail": tail})
 }
 
+// RetryJob returns a failed job to the queue while preserving its identity.
+func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+
+	job, err := dbpkg.GetJob(h.DB, id)
+	if err == sql.ErrNoRows {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if job.Status != dbpkg.StatusFailed {
+		http.Error(w, "only failed jobs can be retried", http.StatusConflict)
+		return
+	}
+
+	// Downloads are written directly to their final filename. Remove a failed
+	// attempt before queueing it again so yt-dlp cannot mistake partial output
+	// for a completed download.
+	if job.OutputPath != "" {
+		if err := os.Remove(job.OutputPath); err != nil && !os.IsNotExist(err) {
+			http.Error(w, "could not remove failed download", http.StatusInternalServerError)
+			return
+		}
+		ext := filepath.Ext(job.OutputPath)
+		sidecar := strings.TrimSuffix(job.OutputPath, ext) + ".info.json"
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			http.Error(w, "could not remove failed download metadata", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := dbpkg.RetryFailedJob(h.DB, id); err == sql.ErrNoRows {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	} else if err == dbpkg.ErrJobNotFailed {
+		http.Error(w, "only failed jobs can be retried", http.StatusConflict)
+		return
+	} else if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"id": id})
+}
+
 // DeleteJob handles DELETE /api/jobs/{id}.
 // Removes the job record and deletes the downloaded file (+ .info.json sidecar) if present.
 func (h *Handler) DeleteJob(w http.ResponseWriter, r *http.Request) {
