@@ -54,6 +54,14 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+# The upstream iOS implementation leaves AVPlayer's audiovisual background
+# policy on "automatic". Newer iOS releases may interpret that as permission to
+# pause video when the app is backgrounded, so Mytube carries a minimal native
+# patch that explicitly requests continued playback.
+dependency_overrides:
+  video_player_avfoundation:
+    path: vendor/video_player_avfoundation
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

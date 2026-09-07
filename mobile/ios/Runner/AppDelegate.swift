@@ -36,6 +36,17 @@ import UIKit
 
   private func handleNowPlayingCall(_ call: FlutterMethodCall, result: FlutterResult) {
     switch call.method {
+    case "activateAudioSession":
+      do {
+        try activateAudioSession()
+        result(nil)
+      } catch {
+        result(FlutterError(
+          code: "audio_session_activation_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+      }
     case "update":
       guard let args = call.arguments as? [String: Any] else { result(nil); return }
       let title    = args["title"]     as? String ?? "Mytube"
@@ -74,8 +85,7 @@ import UIKit
   private func configureAudioSession() {
     let session = AVAudioSession.sharedInstance()
     do {
-      try session.setCategory(.playback, mode: .moviePlayback, options: [])
-      try session.setActive(true)
+      try activateAudioSession()
     } catch {
       NSLog("Failed to configure audio session: \(error)")
     }
@@ -87,6 +97,12 @@ import UIKit
     )
   }
 
+  private func activateAudioSession() throws {
+    let session = AVAudioSession.sharedInstance()
+    try session.setCategory(.playback, mode: .moviePlayback, options: [])
+    try session.setActive(true)
+  }
+
   @objc private func handleAudioInterruption(_ notification: Notification) {
     guard
       let info = notification.userInfo,
@@ -95,9 +111,14 @@ import UIKit
     else { return }
     if type == .ended {
       do {
-        try AVAudioSession.sharedInstance().setActive(true)
+        try activateAudioSession()
       } catch {
         NSLog("Failed to re-activate audio session after interruption: \(error)")
+      }
+      let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+      let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+      if options.contains(.shouldResume) {
+        nowPlayingChannel?.invokeMethod("audioInterruptionEnded", arguments: nil)
       }
     }
   }

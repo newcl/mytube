@@ -2271,7 +2271,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   bool _ready = false;
   String? _error;
   double _speed = 1.0;
-  bool _wasPlayingBeforeBackground = false;
+  // User playback intent is deliberately independent of AVPlayer's current
+  // rate. iOS can set the rate to zero before Flutter receives an inactive
+  // lifecycle event, so sampling controller.value.isPlaying there loses the
+  // information needed to continue in the background.
+  bool _playbackRequested = false;
   bool _changingTrack = false;
   bool _completionHandled = false;
   bool _queueFinished = false;
@@ -2340,7 +2344,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
       if (remaining <= Duration.zero) {
         _sessionTimer?.cancel();
         _controller?.pause();
-        _wasPlayingBeforeBackground = false;
+        _playbackRequested = false;
         setState(() {
           _sessionRemaining = Duration.zero;
           _sessionEnded = true;
@@ -2479,9 +2483,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
         }
         _lastPersistedPosition = resumedFrom ?? Duration.zero;
       });
-      if (!_sessionEnded && (!isRecovery || _wasPlayingBeforeBackground)) {
-        _wasPlayingBeforeBackground = true;
-        await controller.play();
+      if (!_sessionEnded && (!isRecovery || _playbackRequested)) {
+        _playbackRequested = true;
+        await _playController(controller);
       }
       if (isRecovery) {
         appTelemetry.track(
@@ -2618,7 +2622,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (_hasNext && !_sessionEnded) {
       unawaited(_changeTrack(_index + 1));
     } else if (mounted) {
-      _wasPlayingBeforeBackground = false;
+      _playbackRequested = false;
       _sessionTimer?.cancel();
       setState(() => _queueFinished = widget.playlistMode);
       if (widget.playlistMode) {
@@ -2667,11 +2671,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final controller = _controller;
     if (controller == null) return;
     if (controller.value.isPlaying) {
-      _wasPlayingBeforeBackground = false;
+      _playbackRequested = false;
       await controller.pause();
     } else if (!_sessionEnded) {
-      _wasPlayingBeforeBackground = true;
-      await controller.play();
+      _playbackRequested = true;
+      await _playController(controller);
     }
     _showControls();
   }
@@ -2710,7 +2714,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     final shouldWatch =
         _usingNetworkVideo &&
         !_recovering &&
-        _wasPlayingBeforeBackground &&
+        _playbackRequested &&
         value.isBuffering;
     if (!shouldWatch) {
       _bufferingRecoveryTimer?.cancel();
@@ -2723,7 +2727,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
           _controller != controller ||
           _recovering ||
           !controller.value.isBuffering ||
-          !_wasPlayingBeforeBackground) {
+          !_playbackRequested) {
         return;
       }
       _persistCurrentProgress(force: true);
@@ -2769,8 +2773,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     );
     await controller.seekTo(Duration.zero);
     if (!_sessionEnded && !controller.value.isPlaying) {
-      _wasPlayingBeforeBackground = true;
-      await controller.play();
+      _playbackRequested = true;
+      await _playController(controller);
     }
     _showControls();
   }
@@ -2779,31 +2783,28 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final controller = _controller;
     if (controller == null) return;
-    if (state == AppLifecycleState.inactive) {
-      // Capture play state before the system has a chance to auto-pause the
-      // AVPlayer (which iOS does for video content when entering background).
-      _wasPlayingBeforeBackground = controller.value.isPlaying;
-    } else if (state == AppLifecycleState.paused) {
-      // iOS automatically sets AVPlayer rate → 0 for video content when the app
-      // enters background, even with UIBackgroundModes:audio configured. We
-      // override this by re-issuing play immediately and again after a short
-      // delay (to win any race against the system auto-pause).
-      if (_wasPlayingBeforeBackground) {
-        controller.play();
-        Future<void>.delayed(const Duration(milliseconds: 500), () {
-          if (mounted &&
-              _controller == controller &&
-              _wasPlayingBeforeBackground) {
-            controller.play();
-          }
-        });
-      }
+    if (state == AppLifecycleState.paused) {
+      // Reassert the user's intent while Dart is still running. Native AVPlayer
+      // is configured to continue independently after Flutter is suspended.
+      if (_playbackRequested) unawaited(_playController(controller));
     } else if (state == AppLifecycleState.resumed) {
-      // Catch anything that slipped through while backgrounded.
-      if (_wasPlayingBeforeBackground && !controller.value.isPlaying) {
-        controller.play();
+      if (_playbackRequested && !controller.value.isPlaying) {
+        unawaited(_playController(controller));
       }
     }
+  }
+
+  Future<void> _playController(VideoPlayerController controller) async {
+    if (Platform.isIOS) {
+      try {
+        await _nowPlayingChannel.invokeMethod<void>('activateAudioSession');
+      } on PlatformException {
+        // AVPlayer can still attempt playback. A later lifecycle or
+        // interruption callback will retry audio-session activation.
+      }
+    }
+    if (!mounted || _controller != controller || !_playbackRequested) return;
+    await controller.play();
   }
 
   void _tick() {
@@ -2823,7 +2824,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     }
     _watchForStalledPlayback(controller, value);
     _syncPlaybackChrome(
-      value.isPlaying || (value.isBuffering && _wasPlayingBeforeBackground),
+      value.isPlaying || (value.isBuffering && _playbackRequested),
     );
     if (!_completionHandled &&
         value.isInitialized &&
@@ -2868,18 +2869,22 @@ class _VideoPlayerPageState extends State<VideoPlayerPage>
     if (controller == null) return;
     switch (call.method) {
       case 'play':
-        _wasPlayingBeforeBackground = true;
-        await controller.play();
+        _playbackRequested = true;
+        await _playController(controller);
       case 'pause':
-        _wasPlayingBeforeBackground = false;
+        _playbackRequested = false;
         await controller.pause();
       case 'togglePlayPause':
         if (controller.value.isPlaying) {
-          _wasPlayingBeforeBackground = false;
+          _playbackRequested = false;
           await controller.pause();
         } else {
-          _wasPlayingBeforeBackground = true;
-          await controller.play();
+          _playbackRequested = true;
+          await _playController(controller);
+        }
+      case 'audioInterruptionEnded':
+        if (_playbackRequested && !_sessionEnded) {
+          await _playController(controller);
         }
       case 'seekTo':
         final secs = (call.arguments as num).toDouble();

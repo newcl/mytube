@@ -10,6 +10,8 @@ let kBearerToken = "mytube_bearer_token"
 
 class ShareViewController: UIViewController {
 
+  private var hasFinished = false
+
   // ── UI ──────────────────────────────────────────────────────────────────
   private let container: UIView = {
     let v = UIView()
@@ -23,9 +25,9 @@ class ShareViewController: UIViewController {
   }()
 
   private let iconView: UIImageView = {
-    let iv = UIImageView(image: UIImage(systemName: "arrow.down.circle.fill"))
-    iv.tintColor = .systemRed
+    let iv = UIImageView()
     iv.contentMode = .scaleAspectFit
+    iv.isHidden = true
     iv.translatesAutoresizingMaskIntoConstraints = false
     return iv
   }()
@@ -41,7 +43,7 @@ class ShareViewController: UIViewController {
 
   private let statusLabel: UILabel = {
     let l = UILabel()
-    l.text = "Submitting..."
+    l.text = "Adding to queue…"
     l.font = .systemFont(ofSize: 15)
     l.textColor = .secondaryLabel
     l.textAlignment = .center
@@ -82,10 +84,10 @@ class ShareViewController: UIViewController {
       titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
       titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
 
-      spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
       spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      spinner.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
-      statusLabel.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 12),
+      statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
       statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
       statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
       statusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24),
@@ -150,7 +152,7 @@ class ShareViewController: UIViewController {
       return
     }
 
-    DispatchQueue.main.async { self.statusLabel.text = "Sending to Mytube..." }
+    DispatchQueue.main.async { self.statusLabel.text = "Adding to queue…" }
 
     var request = URLRequest(url: endpoint, timeoutInterval: 10)
     request.httpMethod = "POST"
@@ -162,7 +164,7 @@ class ShareViewController: UIViewController {
       let statusCode = (response as? HTTPURLResponse)?.statusCode
       let ok = statusCode == 200 || statusCode == 201
       let msg = ok
-        ? "Added to queue ✓"
+        ? "Added to queue"
         : "Failed (HTTP \(statusCode ?? 0)). Check app settings."
       self?.finish(success: ok, message: msg)
     }.resume()
@@ -171,13 +173,17 @@ class ShareViewController: UIViewController {
   // ── Finish ─────────────────────────────────────────────────────────────
   private func finish(success: Bool, message: String) {
     DispatchQueue.main.async {
+      guard !self.hasFinished else { return }
+      self.hasFinished = true
       self.spinner.stopAnimating()
       self.statusLabel.text = message
       self.iconView.image = UIImage(systemName: success
         ? "checkmark.circle.fill"
         : "xmark.circle.fill")
       self.iconView.tintColor = success ? .systemGreen : .systemRed
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+      self.iconView.isHidden = false
+      let dismissalDelay = success ? 1.2 : 2.8
+      DispatchQueue.main.asyncAfter(deadline: .now() + dismissalDelay) {
         self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
       }
     }

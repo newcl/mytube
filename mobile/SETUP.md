@@ -73,8 +73,8 @@ Or press ▶ in Xcode with your iPhone connected.
 
 1. Open YouTube → find any video
 2. Tap **Share** → scroll the share sheet → tap **MyTube**
-3. A small card appears: "Sending to MyTube..."
-4. After ~1 second: "Added to queue ✓" → sheet auto-dismisses
+3. A small card shows a spinner and "Adding to queue…"
+4. After ~1 second: a green check and "Added to queue" → sheet auto-dismisses
 5. Done — no need to open the app at all
 
 ---
