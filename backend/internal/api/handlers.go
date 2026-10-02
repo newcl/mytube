@@ -22,6 +22,7 @@ type jobResponse struct {
 	Status           dbpkg.JobStatus `json:"status"`
 	CreatedAt        string          `json:"created_at"`
 	UpdatedAt        string          `json:"updated_at"`
+	PublishedAt      string          `json:"published_at"`
 	Title            string          `json:"title"`
 	Uploader         string          `json:"uploader"`
 	ThumbnailURL     string          `json:"thumbnail_url"`
@@ -39,6 +40,7 @@ func toJobResponse(j *dbpkg.Job) jobResponse {
 		Status:           j.Status,
 		CreatedAt:        j.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:        j.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PublishedAt:      j.PublishedAt,
 		Title:            j.Title,
 		Uploader:         j.Uploader,
 		ThumbnailURL:     j.ThumbnailURL,
@@ -98,7 +100,8 @@ func (h *Handler) PostJob(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int64{"id": id})
 }
 
-// GetJobs handles GET /api/jobs?limit=50.
+// GetJobs handles GET /api/jobs?limit=50&status=completed&before_id=123.
+// before_id is an exclusive cursor for fetching older jobs.
 func (h *Handler) GetJobs(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -107,8 +110,22 @@ func (h *Handler) GetJobs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	jobs, err := dbpkg.ListJobs(h.DB, limit)
+	beforeID := int64(0)
+	if raw := r.URL.Query().Get("before_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "before_id must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		beforeID = id
+	}
+	status := r.URL.Query().Get("status")
+	jobs, err := dbpkg.ListJobsPage(h.DB, int64(limit), beforeID, status)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid job status filter") {
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

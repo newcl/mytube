@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, ClipboardPaste, Captions, CaptionsOff, MoreHorizontal, Play, Trash2, ListPlus, ExternalLink, Copy, Info, ListMusic, X, CheckSquare, Settings, RefreshCw, Clock, PictureInPicture2, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
 import QRCode from 'qrcode';
-import { listJobs, createJob, retryJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult, createMobilePairing, listMobileDevices, revokeMobileDevice, type MobileDevice } from '../api';
+import { listJobs, listAllJobs, createJob, retryJob, deleteJob, type Job, searchSubtitles, type SubtitleSearchResult, createMobilePairing, listMobileDevices, revokeMobileDevice, type MobileDevice } from '../api';
 import {
   fileUrl,
   fileZipDownloadUrl,
@@ -1302,6 +1302,9 @@ function SettingsModal() {
 
 export default function HomePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobView, setJobView] = useState<'library' | 'queue'>('library');
+  const [librarySort, setLibrarySort] = useState<'download_new' | 'download_old' | 'published_new' | 'published_old'>('download_new');
+  const [uploaderFilter, setUploaderFilter] = useState('');
   const [url, setUrl] = useState('');
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [playlistTimer, setPlaylistTimer] = useState<PlaylistTimer>(30);
@@ -1357,8 +1360,11 @@ export default function HomePage() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const data = await listJobs(100);
-      setJobs(data ?? []);
+      const [completed, active] = await Promise.all([
+        listAllJobs('completed'),
+        listJobs(200, 'active'),
+      ]);
+      setJobs([...active, ...completed]);
     } catch {
       // silently ignore poll errors
     }
@@ -1705,6 +1711,25 @@ export default function HomePage() {
   }
 
   const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'downloading');
+  const libraryJobs = jobs.filter((j) => j.status === 'completed');
+  const queueJobs = jobs.filter((j) => j.status !== 'completed');
+  const uploaderOptions = Array.from(new Set(libraryJobs.map((j) => j.uploader).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+  const displayedJobs = (jobView === 'library'
+    ? libraryJobs.filter((j) => !uploaderFilter || j.uploader === uploaderFilter)
+    : queueJobs)
+    .sort((a, b) => {
+      if (jobView !== 'library') return b.id - a.id;
+      const byDownload = librarySort.startsWith('download');
+      const aDate = byDownload ? a.created_at : a.published_at;
+      const bDate = byDownload ? b.created_at : b.published_at;
+      // Videos that lack historic yt-dlp metadata stay at the bottom for a
+      // publish-date sort, rather than appearing as artificially old.
+      if (!byDownload && !aDate) return 1;
+      if (!byDownload && !bDate) return -1;
+      const direction = librarySort.endsWith('_new') ? -1 : 1;
+      return direction * aDate.localeCompare(bDate);
+    });
   const playlistPlaybackState = getPlaylistPlaybackState(playlist, playlistIndex, isPlaylistItemPlayable);
   const playlistPlayerContext: PlaylistPlayerContext | undefined = playlistPlaybackState ? {
     position: playlistPlaybackState.position,
@@ -1735,6 +1760,27 @@ export default function HomePage() {
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-1" title="Active downloads" />
           )}
         </div>
+
+        {jobView === 'library' && libraryJobs.length > 0 && (
+          <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="text-xs text-muted-foreground">
+              Sort
+              <select value={librarySort} onChange={(e) => setLibrarySort(e.target.value as typeof librarySort)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="download_new">Download date: newest first</option>
+                <option value="download_old">Download date: oldest first</option>
+                <option value="published_new">Upload date: newest first</option>
+                <option value="published_old">Upload date: oldest first</option>
+              </select>
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Uploader
+              <select value={uploaderFilter} onChange={(e) => setUploaderFilter(e.target.value)} className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="">All uploaders ({libraryJobs.length})</option>
+                {uploaderOptions.map((uploader) => <option key={uploader} value={uploader}>{uploader}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
         <SettingsModal />
       </header>
 
@@ -1760,7 +1806,7 @@ export default function HomePage() {
             >
               <Search className="w-4 h-4" />
             </Button>
-            {jobs.length > 0 && (
+            {jobs.some((j) => j.status === 'completed') && (
               <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => setSelectMode(true)} title="Select videos">
                 <CheckSquare className="w-4 h-4" />
               </Button>
@@ -1775,7 +1821,7 @@ export default function HomePage() {
               >
                 <ListMusic className="w-4 h-4" />
               </Button>
-              {jobs.length > 0 && (
+              {jobs.some((j) => j.status === 'completed') && (
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button size="sm" variant="outline" className="h-8 w-8 p-0" title="Prune old videos">
@@ -1896,14 +1942,35 @@ export default function HomePage() {
           </>
         )}
 
+        {/* Library is intentionally separate from the queue: active work never
+            displaces finished videos from the collection. */}
+        <div className="mb-4 flex rounded-lg border border-border p-1 text-sm" role="tablist" aria-label="Downloads">
+          <button
+            role="tab"
+            aria-selected={jobView === 'library'}
+            onClick={() => setJobView('library')}
+            className={`flex-1 rounded-md px-3 py-2 transition-colors ${jobView === 'library' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+          >
+            Library <span className="ml-1 opacity-70">{libraryJobs.length}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={jobView === 'queue'}
+            onClick={() => setJobView('queue')}
+            className={`flex-1 rounded-md px-3 py-2 transition-colors ${jobView === 'queue' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+          >
+            Queue <span className="ml-1 opacity-70">{queueJobs.length}</span>
+          </button>
+        </div>
+
         {/* Job list */}
-        {jobs.length === 0 ? (
+        {displayedJobs.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12">
-            <p className="text-muted-foreground text-sm">No downloads yet. Click Add URL or paste a YouTube link.</p>
+            <p className="text-muted-foreground text-sm">{jobView === 'library' ? 'No completed videos yet.' : 'No queued or active downloads.'}</p>
             <Button variant="outline" size="sm" onClick={fetchJobs}>↻ Refresh</Button>
           </div>
         ) : (
-          jobs.map((j) => (
+          displayedJobs.map((j) => (
             <JobRow
               key={j.id}
               job={j}

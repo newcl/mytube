@@ -206,6 +206,30 @@ func TestRecoverInterruptedJobs(t *testing.T) {
 	}
 }
 
+func TestRequeueInterruptedJob(t *testing.T) {
+	db := openTestDB(t)
+	id, err := dbPkg.CreateJob(db, "https://example.com/graceful-shutdown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobDownloading(db, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.SetJobOutputPath(db, id, "/tmp/partial.mp4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbPkg.RequeueInterruptedJob(db, id); err != nil {
+		t.Fatal(err)
+	}
+	job, err := dbPkg.GetJob(db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != dbPkg.StatusQueued || job.OutputPath != "" || job.Progress != nil {
+		t.Fatalf("job was not reset for retry: %#v", job)
+	}
+}
+
 func TestRetryFailedJobPreservesIDAndClearsAttemptState(t *testing.T) {
 	database := openTestDB(t)
 	id, err := dbPkg.CreateJob(database, "https://example.com/retry")

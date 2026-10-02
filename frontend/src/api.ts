@@ -14,6 +14,7 @@ export interface Job {
   status: 'queued' | 'downloading' | 'completed' | 'failed';
   created_at: string;
   updated_at: string;
+  published_at: string;
   title: string;
   uploader: string;
   thumbnail_url: string;
@@ -48,10 +49,29 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-export async function listJobs(limit = 50): Promise<Job[]> {
-  const res = await apiFetch(`/api/jobs?limit=${limit}`);
+export type JobListStatus = 'active' | Job['status'];
+
+export async function listJobs(limit = 50, status?: JobListStatus, beforeId?: number): Promise<Job[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (status) params.set('status', status);
+  if (beforeId) params.set('before_id', String(beforeId));
+  const res = await apiFetch(`/api/jobs?${params}`);
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
+}
+
+// Fetch every page so a busy queue can never hide older completed videos.
+export async function listAllJobs(status: JobListStatus): Promise<Job[]> {
+  const pageSize = 200;
+  const jobs: Job[] = [];
+  let beforeId: number | undefined;
+  do {
+    const page = await listJobs(pageSize, status, beforeId);
+    jobs.push(...page);
+    beforeId = page.at(-1)?.id;
+    if (page.length < pageSize) return jobs;
+  } while (beforeId);
+  return jobs;
 }
 
 export async function getJob(id: number): Promise<Job> {

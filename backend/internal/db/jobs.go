@@ -38,6 +38,7 @@ type Job struct {
 	Status           JobStatus `json:"status"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	PublishedAt      string    `json:"published_at"`
 	Title            string    `json:"title"`
 	Uploader         string    `json:"uploader"`
 	ThumbnailURL     string    `json:"thumbnail_url"`
@@ -146,13 +147,43 @@ func GetJob(db *sql.DB, id int64) (*Job, error) {
 
 // ListJobs returns the most recent jobs up to limit.
 func ListJobs(db *sql.DB, limit int) ([]*Job, error) {
+	return ListJobsPage(db, int64(limit), 0, "")
+}
+
+// ListJobsPage returns a stable, newest-first page of jobs. beforeID is an
+// exclusive cursor; callers pass the ID of the final job from the previous
+// page to retrieve older results. status may be "completed", "active", or a
+// concrete job status. An empty status includes every job.
+func ListJobsPage(db *sql.DB, limit, beforeID int64, status string) ([]*Job, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := db.Query(
-		`SELECT `+jobColumns+` FROM jobs ORDER BY created_at DESC LIMIT ?`,
-		limit,
-	)
+	where := ""
+	args := make([]any, 0, 3)
+	switch status {
+	case "", "all":
+	case "active":
+		where = "status IN ('queued','downloading','failed')"
+	case string(StatusQueued), string(StatusDownloading), string(StatusCompleted), string(StatusFailed):
+		where = "status = ?"
+		args = append(args, status)
+	default:
+		return nil, fmt.Errorf("invalid job status filter %q", status)
+	}
+	if beforeID > 0 {
+		if where != "" {
+			where += " AND "
+		}
+		where += "id < ?"
+		args = append(args, beforeID)
+	}
+	query := `SELECT ` + jobColumns + ` FROM jobs`
+	if where != "" {
+		query += " WHERE " + where
+	}
+	query += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
 	}
@@ -233,6 +264,7 @@ type CompletedFields struct {
 	DurationSecs float64
 	Extractor    string
 	WebpageURL   string
+	PublishedAt  string
 	LogTail      string
 }
 
@@ -247,27 +279,30 @@ func SetJobCompleted(db *sql.DB, id int64, f CompletedFields) error {
 		duration_seconds = ?,
 		extractor    = ?,
 		webpage_url  = ?,
+		published_at = ?,
 		log_tail     = ?
 	WHERE id = ?`,
-		f.OutputPath, f.Title, f.Uploader, f.ThumbnailURL, f.DurationSecs, f.Extractor, f.WebpageURL, f.LogTail,
+		f.OutputPath, f.Title, f.Uploader, f.ThumbnailURL, f.DurationSecs, f.Extractor, f.WebpageURL, f.PublishedAt, f.LogTail,
 		id,
 	)
 	return err
 }
 
 // SetJobMetadata updates metadata while a job is in progress.
-func SetJobMetadata(db *sql.DB, id int64, title, uploader, thumbnailURL string, durationSecs float64) error {
+func SetJobMetadata(db *sql.DB, id int64, title, uploader, thumbnailURL string, durationSecs float64, publishedAt string) error {
 	_, err := db.Exec(`UPDATE jobs SET
 		title = CASE WHEN ? <> '' THEN ? ELSE title END,
 		uploader = CASE WHEN ? <> '' THEN ? ELSE uploader END,
 		thumbnail_url = CASE WHEN ? <> '' THEN ? ELSE thumbnail_url END,
 		duration_seconds = CASE WHEN ? > 0 THEN ? ELSE duration_seconds END,
+		published_at = CASE WHEN ? <> '' THEN ? ELSE published_at END,
 		updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
 	WHERE id = ?`,
 		title, title,
 		uploader, uploader,
 		thumbnailURL, thumbnailURL,
 		durationSecs, durationSecs,
+		publishedAt, publishedAt,
 		id,
 	)
 	return err
@@ -331,6 +366,23 @@ func RecoverInterruptedJobs(db *sql.DB) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// RequeueInterruptedJob returns one cancelled in-flight job to the queue.
+// It is used for graceful service shutdowns; hard stops are handled by
+// RecoverInterruptedJobs when the next process starts.
+func RequeueInterruptedJob(db *sql.DB, id int64) error {
+	_, err := db.Exec(`UPDATE jobs SET
+		status        = 'queued',
+		updated_at    = strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+		output_path   = NULL,
+		progress_json = NULL,
+		error_msg     = 'service restarted; job requeued'
+		WHERE id = ? AND status = 'downloading'`, id)
+	if err != nil {
+		return fmt.Errorf("requeue interrupted job %d: %w", id, err)
+	}
+	return nil
 }
 
 // UpdateJobProgress writes progress JSON (throttled by caller).
@@ -409,7 +461,7 @@ func DequeueJobs(db *sql.DB, n int) ([]*Job, error) {
 const jobColumns = `id, url, status, created_at, updated_at,
 	COALESCE(title,''), COALESCE(uploader,''), COALESCE(thumbnail_url,''),
 	COALESCE(duration_seconds, 0),
-	COALESCE(extractor,''), COALESCE(webpage_url,''), COALESCE(output_path,''),
+	COALESCE(extractor,''), COALESCE(webpage_url,''), COALESCE(published_at,''), COALESCE(output_path,''),
 	COALESCE(subtitles_checked, 0),
 	COALESCE(error_msg,''), COALESCE(progress_json,''), COALESCE(log_tail,'')`
 
@@ -456,7 +508,8 @@ type MetadataBackfillJob struct {
 func GetJobsForMetadataBackfill(db *sql.DB, limit int) ([]MetadataBackfillJob, error) {
 	rows, err := db.Query(
 		`SELECT id, COALESCE(output_path,'') FROM jobs
-		 WHERE status = 'completed' AND output_path <> '' AND COALESCE(duration_seconds, 0) <= 0
+		 WHERE status = 'completed' AND output_path <> ''
+		   AND (COALESCE(duration_seconds, 0) <= 0 OR COALESCE(published_at, '') = '')
 		 ORDER BY created_at ASC LIMIT ?`, limit,
 	)
 	if err != nil {
@@ -488,7 +541,7 @@ func scanJob(s scanner) (*Job, error) {
 		&j.ID, &j.URL, &j.Status, &createdStr, &updatedStr,
 		&j.Title, &j.Uploader, &j.ThumbnailURL,
 		&j.DurationSecs,
-		&j.Extractor, &j.WebpageURL, &j.OutputPath,
+		&j.Extractor, &j.WebpageURL, &j.PublishedAt, &j.OutputPath,
 		&j.SubtitlesChecked,
 		&j.Error, &progressJSON, &j.LogTail,
 	); err != nil {

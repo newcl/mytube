@@ -119,17 +119,17 @@ func (w *Worker) backfillMetadata() {
 	updated := 0
 	for _, job := range jobs {
 		meta := readInfoJSON(job.OutputPath)
-		if meta.Duration <= 0 {
+		if meta.Duration <= 0 && meta.PublishedAt == "" {
 			continue
 		}
-		if err := dbpkg.SetJobMetadata(w.db, job.ID, "", "", "", meta.Duration); err != nil {
+		if err := dbpkg.SetJobMetadata(w.db, job.ID, "", "", "", meta.Duration, meta.PublishedAt); err != nil {
 			log.Printf("worker: metadata backfill job %d: %v", job.ID, err)
 			continue
 		}
 		updated++
 	}
 	if updated > 0 {
-		log.Printf("worker: metadata backfill restored duration for %d jobs", updated)
+		log.Printf("worker: metadata backfill restored metadata for %d jobs", updated)
 	}
 }
 
@@ -202,6 +202,11 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 	if result.err != nil {
 		if ctx.Err() != nil {
 			outcome = "cancelled"
+			if err := dbpkg.RequeueInterruptedJob(w.db, job.ID); err != nil {
+				log.Printf("worker: requeue interrupted job %d: %v", job.ID, err)
+			}
+			log.Printf("worker: job %d interrupted by service shutdown; requeued", job.ID)
+			return
 		}
 		_ = dbpkg.SetJobFailed(w.db, job.ID, result.err.Error(), logTail)
 		log.Printf("worker: job %d failed: %v", job.ID, result.err)
@@ -218,6 +223,7 @@ func (w *Worker) download(ctx context.Context, job *dbpkg.Job) {
 		DurationSecs: meta.Duration,
 		Extractor:    meta.Extractor,
 		WebpageURL:   meta.WebpageURL,
+		PublishedAt:  meta.PublishedAt,
 		LogTail:      logTail,
 	})
 	if err != nil {
@@ -326,7 +332,7 @@ func (w *Worker) runDownloadAttempt(ctx context.Context, job *dbpkg.Job, outputT
 			if canWriteMeta {
 				meta := readInfoJSON(candidate)
 				if meta.Title != "" || meta.Uploader != "" || meta.Thumbnail != "" || meta.Duration > 0 {
-					_ = dbpkg.SetJobMetadata(w.db, job.ID, meta.Title, meta.Uploader, meta.Thumbnail, meta.Duration)
+					_ = dbpkg.SetJobMetadata(w.db, job.ID, meta.Title, meta.Uploader, meta.Thumbnail, meta.Duration, meta.PublishedAt)
 					mu.Lock()
 					metaWritten = true
 					mu.Unlock()
@@ -460,12 +466,13 @@ func capLog(s string) string {
 // ---- metadata ---------------------------------------------------------------
 
 type videoMeta struct {
-	Title      string
-	Uploader   string
-	Thumbnail  string
-	Duration   float64
-	Extractor  string
-	WebpageURL string
+	Title       string
+	Uploader    string
+	Thumbnail   string
+	Duration    float64
+	Extractor   string
+	WebpageURL  string
+	PublishedAt string
 }
 
 func readInfoJSON(videoPath string) videoMeta {
@@ -494,13 +501,23 @@ func readInfoJSON(videoPath string) videoMeta {
 	}
 
 	return videoMeta{
-		Title:      strVal(raw, "title"),
-		Uploader:   firstStrVal(raw, "uploader", "channel"),
-		Thumbnail:  strVal(raw, "thumbnail"),
-		Duration:   numVal(raw, "duration"),
-		Extractor:  strVal(raw, "extractor"),
-		WebpageURL: strVal(raw, "webpage_url"),
+		Title:       strVal(raw, "title"),
+		Uploader:    firstStrVal(raw, "uploader", "channel"),
+		Thumbnail:   strVal(raw, "thumbnail"),
+		Duration:    numVal(raw, "duration"),
+		Extractor:   strVal(raw, "extractor"),
+		WebpageURL:  strVal(raw, "webpage_url"),
+		PublishedAt: normalizeUploadDate(strVal(raw, "upload_date")),
 	}
+}
+
+func normalizeUploadDate(raw string) string {
+	if len(raw) == 8 {
+		if _, err := time.Parse("20060102", raw); err == nil {
+			return raw[:4] + "-" + raw[4:6] + "-" + raw[6:]
+		}
+	}
+	return ""
 }
 
 func strVal(m map[string]any, key string) string {

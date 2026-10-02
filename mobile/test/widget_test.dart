@@ -14,10 +14,25 @@ class FakeApiService extends ApiService {
   int calls = 0;
 
   @override
-  Future<List<Job>> listJobs() async {
+  Future<List<Job>> listJobs({String? status, int? beforeId}) async {
     calls++;
     if (error != null) throw error!;
+    if (status == 'active') {
+      return jobs.where((job) => job.status != 'completed').toList();
+    }
+    if (status == 'completed') {
+      return jobs.where((job) => job.status == 'completed').toList();
+    }
     return jobs;
+  }
+
+  @override
+  Future<List<Job>> listAllJobs({required String status}) async {
+    calls++;
+    if (error != null) throw error!;
+    return status == 'completed'
+        ? jobs.where((job) => job.status == 'completed').toList()
+        : jobs;
   }
 
   @override
@@ -96,7 +111,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(authenticated.calls, 1);
+    expect(authenticated.calls, 2);
     expect(find.text('No downloads yet'), findsOneWidget);
     expect(find.text('Server access needs setup'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());

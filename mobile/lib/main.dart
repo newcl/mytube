@@ -50,6 +50,7 @@ class Job {
   final String error;
   final JobProgress? progress;
   final String createdAt;
+  final String publishedAt;
   bool get isActive => status == 'queued' || status == 'downloading';
   Job({
     required this.id,
@@ -61,6 +62,7 @@ class Job {
     required this.error,
     this.progress,
     required this.createdAt,
+    this.publishedAt = '',
   });
   factory Job.fromJson(Map<String, dynamic> j) => Job(
     id: j['id'] as int,
@@ -74,6 +76,7 @@ class Job {
         ? JobProgress.fromJson(j['progress'] as Map<String, dynamic>)
         : null,
     createdAt: j['created_at'] as String? ?? '',
+    publishedAt: j['published_at'] as String? ?? '',
   );
 }
 
@@ -136,19 +139,32 @@ class ApiService {
     }
   }
 
-  Future<List<Job>> listJobs() async {
-    var res = await _getWithFallback('/api/jobs?limit=100');
+  Future<List<Job>> listJobs({String? status, int? beforeId}) async {
+    final params = <String, String>{'limit': '200'};
+    if (status != null) params['status'] = status;
+    if (beforeId != null) params['before_id'] = '$beforeId';
+    final path = '/api/jobs?${Uri(queryParameters: params).query}';
+    var res = await _getWithFallback(path);
     if (res.statusCode >= 500 && fallbackBaseUrl != null) {
       res = await http
-          .get(
-            Uri.parse('$fallbackBaseUrl/api/jobs?limit=100'),
-            headers: _headers,
-          )
+          .get(Uri.parse('$fallbackBaseUrl$path'), headers: _headers)
           .timeout(const Duration(seconds: 10));
     }
     if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
     final list = jsonDecode(res.body) as List;
     return list.map((j) => Job.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<Job>> listAllJobs({required String status}) async {
+    final jobs = <Job>[];
+    int? beforeId;
+    do {
+      final page = await listJobs(status: status, beforeId: beforeId);
+      jobs.addAll(page);
+      beforeId = page.isEmpty ? null : page.last.id;
+      if (page.length < 200) break;
+    } while (beforeId != null);
+    return jobs;
   }
 
   Future<List<SubtitleSearchResult>> searchSubtitles(String query) async {
@@ -598,6 +614,9 @@ class JobsPage extends StatefulWidget {
 
 class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   List<Job> _jobs = [];
+  bool _showQueue = false;
+  String _librarySort = 'download_new';
+  String _uploaderFilter = '';
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
@@ -765,9 +784,18 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
       });
     }
     try {
-      final jobs = await widget.api.listJobs();
+      final results = await Future.wait([
+        widget.api.listAllJobs(status: 'completed'),
+        widget.api.listJobs(status: 'active'),
+      ]);
+      final jobs = [...results[1], ...results[0]];
       if (!mounted || generation != _refreshGeneration) return;
       setState(() {
+        // On a first visit with no library yet, make active work discoverable
+        // immediately. Once the user has a library, it remains the default.
+        if (_jobs.isEmpty && results[0].isEmpty && results[1].isNotEmpty) {
+          _showQueue = true;
+        }
         _jobs = jobs;
         _loading = false;
         _error = null;
@@ -991,6 +1019,8 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   _buildLibraryToolbar(),
+                  _buildJobTabs(),
+                  _buildLibraryFilters(),
                   if (_showSubtitleSearch) _buildSubtitleResults(),
                   Expanded(child: _buildLibraryContent()),
                 ],
@@ -1067,6 +1097,98 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildJobTabs() {
+    final libraryCount = _jobs.where((job) => job.status == 'completed').length;
+    final queueCount = _jobs.length - libraryCount;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: ToggleButtons(
+        isSelected: [!_showQueue, _showQueue],
+        onPressed: (index) => setState(() => _showQueue = index == 1),
+        borderRadius: BorderRadius.circular(10),
+        constraints: const BoxConstraints(minHeight: 38, minWidth: 130),
+        children: [
+          Text('Library ($libraryCount)'),
+          Text('Queue ($queueCount)'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLibraryFilters() {
+    if (_showQueue || _jobs.where((job) => job.status == 'completed').isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final uploaders =
+        _jobs
+            .where(
+              (job) => job.status == 'completed' && job.uploader.isNotEmpty,
+            )
+            .map((job) => job.uploader)
+            .toSet()
+            .toList()
+          ..sort();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              initialValue: _librarySort,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Sort',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'download_new',
+                  child: Text('Downloaded: newest'),
+                ),
+                DropdownMenuItem(
+                  value: 'download_old',
+                  child: Text('Downloaded: oldest'),
+                ),
+                DropdownMenuItem(
+                  value: 'published_new',
+                  child: Text('Uploaded: newest'),
+                ),
+                DropdownMenuItem(
+                  value: 'published_old',
+                  child: Text('Uploaded: oldest'),
+                ),
+              ],
+              onChanged: (value) => setState(() => _librarySort = value!),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              initialValue: _uploaderFilter,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Uploader',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('All uploaders')),
+                ...uploaders.map(
+                  (uploader) => DropdownMenuItem(
+                    value: uploader,
+                    child: Text(uploader, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+              onChanged: (value) => setState(() => _uploaderFilter = value!),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1158,44 +1280,73 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
   }
 
   Widget _buildLibraryContent() {
+    final visibleJobs =
+        (_showQueue
+              ? _jobs.where((job) => job.status != 'completed').toList()
+              : _jobs
+                    .where(
+                      (job) =>
+                          job.status == 'completed' &&
+                          (_uploaderFilter.isEmpty ||
+                              job.uploader == _uploaderFilter),
+                    )
+                    .toList())
+          ..sort((a, b) {
+            if (_showQueue) return b.id.compareTo(a.id);
+            final byDownload = _librarySort.startsWith('download');
+            final aDate = byDownload ? a.createdAt : a.publishedAt;
+            final bDate = byDownload ? b.createdAt : b.publishedAt;
+            if (!byDownload && aDate.isEmpty) return 1;
+            if (!byDownload && bDate.isEmpty) return -1;
+            final result = aDate.compareTo(bDate);
+            return _librarySort.endsWith('_new') ? -result : result;
+          });
     if (_loading && _jobs.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _jobs.isEmpty) return _buildError();
-    if (_jobs.isEmpty) return _buildEmpty();
+    if (visibleJobs.isEmpty) {
+      return _showQueue ? _buildQueueEmpty() : _buildEmpty();
+    }
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _jobs.length,
+        itemCount: visibleJobs.length,
         itemBuilder: (_, i) => _JobCard(
-          job: _jobs[i],
-          onDelete: () => _delete(_jobs[i]),
-          onPlay: _selectMode ? null : () => _play(_jobs[i]),
-          selectMode: _selectMode && !_jobs[i].isActive,
-          selected: !_jobs[i].isActive && _selected.contains(_jobs[i].id),
-          onLongPress: _jobs[i].isActive
+          job: visibleJobs[i],
+          onDelete: () => _delete(visibleJobs[i]),
+          onPlay: _selectMode ? null : () => _play(visibleJobs[i]),
+          selectMode: _selectMode && !visibleJobs[i].isActive,
+          selected:
+              !visibleJobs[i].isActive && _selected.contains(visibleJobs[i].id),
+          onLongPress: visibleJobs[i].isActive
               ? () {}
-              : () => _enterSelectMode(_jobs[i].id),
-          onToggleSelect: _jobs[i].isActive
+              : () => _enterSelectMode(visibleJobs[i].id),
+          onToggleSelect: visibleJobs[i].isActive
               ? () {}
-              : () => _toggleSelect(_jobs[i].id),
-          isLocallyDownloaded: _locallyDownloaded.contains(_jobs[i].id),
-          downloadingProgress: _downloading[_jobs[i].id],
+              : () => _toggleSelect(visibleJobs[i].id),
+          isLocallyDownloaded: _locallyDownloaded.contains(visibleJobs[i].id),
+          downloadingProgress: _downloading[visibleJobs[i].id],
           onDownloadToPhone: _selectMode
               ? null
-              : () => _downloadToPhone(_jobs[i]),
+              : () => _downloadToPhone(visibleJobs[i]),
           isInPlaylist: widget.playlist.contains(
-            jobId: _jobs[i].id,
-            url: _jobs[i].url,
+            jobId: visibleJobs[i].id,
+            url: visibleJobs[i].url,
           ),
-          onAddToPlaylist: _selectMode ? null : () => _addToPlaylist(_jobs[i]),
-          retrying: _retrying.contains(_jobs[i].id),
-          onRetry: _selectMode ? null : () => _retry(_jobs[i]),
+          onAddToPlaylist: _selectMode
+              ? null
+              : () => _addToPlaylist(visibleJobs[i]),
+          retrying: _retrying.contains(visibleJobs[i].id),
+          onRetry: _selectMode ? null : () => _retry(visibleJobs[i]),
         ),
       ),
     );
   }
+
+  Widget _buildQueueEmpty() =>
+      const Center(child: Text('No queued or active downloads.'));
 
   Widget _buildEmpty() => Center(
     child: Column(
