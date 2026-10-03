@@ -17,6 +17,7 @@ export interface Job {
   published_at: string;
   title: string;
   uploader: string;
+  match: 'metadata' | 'subtitle';
   thumbnail_url: string;
   duration_seconds?: number;
   subtitles_checked: boolean;

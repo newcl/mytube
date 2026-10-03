@@ -85,6 +85,7 @@ class SubtitleSearchResult {
     required this.jobId,
     required this.title,
     required this.uploader,
+    this.match = 'subtitle',
     required this.start,
     required this.duration,
     required this.text,
@@ -93,6 +94,7 @@ class SubtitleSearchResult {
   final int jobId;
   final String title;
   final String uploader;
+  final String match;
   final double start;
   final double duration;
   final String text;
@@ -102,6 +104,7 @@ class SubtitleSearchResult {
         jobId: json['job_id'] as int,
         title: json['title'] as String? ?? '',
         uploader: json['uploader'] as String? ?? '',
+        match: json['match'] as String? ?? 'subtitle',
         start: (json['start'] as num?)?.toDouble() ?? 0,
         duration: (json['duration'] as num?)?.toDouble() ?? 0,
         text: json['text'] as String? ?? '',
@@ -898,7 +901,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
       setState(() => _subtitleResults = results);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _subtitleError = 'Subtitle search failed. Try again.');
+      setState(() => _subtitleError = 'Library search failed. Try again.');
     } finally {
       if (mounted) setState(() => _subtitleLoading = false);
     }
@@ -1044,7 +1047,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                   textInputAction: TextInputAction.search,
                   onSubmitted: (_) => _searchSubtitles(),
                   decoration: const InputDecoration(
-                    hintText: 'Search subtitles…',
+                    hintText: 'Search titles, uploaders, links, or subtitles…',
                     prefixIcon: Icon(Icons.search),
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(vertical: 8),
@@ -1084,7 +1087,7 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
         child: Row(
           children: [
             IconButton(
-              tooltip: 'Search subtitles',
+              tooltip: 'Search library',
               onPressed: () => setState(() => _showSubtitleSearch = true),
               icon: const Icon(Icons.search),
             ),
@@ -1253,7 +1256,9 @@ class _JobsPageState extends State<JobsPage> with WidgetsBindingObserver {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              _subtitleTimestamp(result.start),
+                              result.match == 'subtitle'
+                                  ? _subtitleTimestamp(result.start)
+                                  : 'Video',
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontFeatures: [FontFeature.tabularFigures()],

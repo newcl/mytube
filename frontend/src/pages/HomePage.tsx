@@ -1802,7 +1802,7 @@ export default function HomePage() {
               size="sm"
               className="h-8 w-8 p-0"
               onClick={() => { setShowSubSearch(!showSubSearch); setShowQueueForm(false); }}
-              title="Search subtitles"
+              title="Search library"
             >
               <Search className="w-4 h-4" />
             </Button>
@@ -1900,7 +1900,7 @@ export default function HomePage() {
               <Input
                 value={subQuery}
                 onChange={(e) => setSubQuery(e.target.value)}
-                placeholder="Search subtitles…"
+                placeholder="Search titles, uploaders, links, or subtitles…"
                 className="flex-1"
                 disabled={subLoading}
                 autoFocus
@@ -1926,7 +1926,7 @@ export default function HomePage() {
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          {formatTimestamp(r.start)}
+                          {r.match === 'subtitle' ? formatTimestamp(r.start) : 'Video'}
                         </span>
                         <span className="text-xs font-medium truncate">{r.title || 'Video'}</span>
                       </div>

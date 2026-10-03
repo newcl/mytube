@@ -33,6 +33,7 @@ type SubtitleSearchResult struct {
 	JobID    int64   `json:"job_id"`
 	Title    string  `json:"title"`
 	Uploader string  `json:"uploader"`
+	Match    string  `json:"match"` // "metadata" or "subtitle"
 	Start    float64 `json:"start"`
 	Duration float64 `json:"duration"`
 	Text     string  `json:"text"`
@@ -106,6 +107,18 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 		if len(results) >= limit {
 			break
 		}
+		// Search the durable video metadata first. This makes Library search
+		// useful even when a video has no subtitles.
+		matched := matchingMetadataFields(job, queryLower)
+		if len(matched) > 0 {
+			results = append(results, SubtitleSearchResult{
+				JobID: job.ID, Title: job.Title, Uploader: job.Uploader,
+				Match: "metadata", Text: "Matched " + strings.Join(matched, ", "),
+			})
+			if len(results) >= limit {
+				break
+			}
+		}
 
 		infoPath := infoJSONPath(job.OutputPath)
 		if infoPath == "" {
@@ -140,6 +153,7 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 						JobID:    job.ID,
 						Title:    job.Title,
 						Uploader: job.Uploader,
+						Match:    "subtitle",
 						Start:    cue.Start,
 						Duration: cue.Duration,
 						Text:     cue.Text,
@@ -155,6 +169,25 @@ func (h *Handler) SearchAllSubtitles(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(SubtitleSearchResponse{Results: results})
+}
+
+func matchingMetadataFields(job *dbpkg.Job, query string) []string {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{"title", job.Title},
+		{"uploader", job.Uploader},
+		{"source URL", job.URL},
+		{"video URL", job.WebpageURL},
+	}
+	matched := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.value != "" && strings.Contains(strings.ToLower(field.value), query) {
+			matched = append(matched, field.name)
+		}
+	}
+	return matched
 }
 
 func infoJSONPath(outputPath string) string {

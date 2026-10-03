@@ -132,11 +132,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mytube'), findsNothing);
-    expect(find.byTooltip('Search subtitles'), findsOneWidget);
+    expect(find.byTooltip('Search library'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Search subtitles'));
+    await tester.tap(find.byTooltip('Search library'));
     await tester.pump();
-    expect(find.widgetWithText(TextField, 'Search subtitles…'), findsOneWidget);
+    expect(
+      find.widgetWithText(
+        TextField,
+        'Search titles, uploaders, links, or subtitles…',
+      ),
+      findsOneWidget,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     playlist.dispose();
